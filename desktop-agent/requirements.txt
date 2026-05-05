@@ -1,0 +1,9 @@
+# Desktop Agent Requirements
+
+# MVP benötigt erstmal keine externen Python-Pakete.
+# Später:
+# pywin32
+# psutil
+# pyttsx3
+# openai
+# websockets
