@@ -1,9 +1,24 @@
 import subprocess
 from pathlib import Path
-from typing import Callable
+from typing import Any, Callable
 
 
 LogFn = Callable[[str, str], None]
+
+IGNORED_DIRS = {
+    ".git",
+    "node_modules",
+    ".venv",
+    "venv",
+    "__pycache__",
+    "dist",
+    "build",
+    ".next",
+    ".turbo",
+}
+
+
+ProjectAnalysis = dict[str, Any]
 
 
 def run_command(command: list[str], cwd: Path, timeout_seconds: int = 10) -> tuple[bool, str]:
@@ -50,24 +65,13 @@ def read_file_preview(path: Path, max_lines: int = 20) -> list[str]:
 
 def find_files(project_path: Path, names: list[str]) -> list[Path]:
     found: list[Path] = []
-
-    ignored_dirs = {
-        ".git",
-        "node_modules",
-        ".venv",
-        "venv",
-        "__pycache__",
-        "dist",
-        "build",
-        ".next",
-        ".turbo",
-    }
+    wanted = [name.lower() for name in names]
 
     for path in project_path.rglob("*"):
-        if any(part in ignored_dirs for part in path.parts):
+        if any(part in IGNORED_DIRS for part in path.parts):
             continue
 
-        if path.is_file() and path.name.lower() in [name.lower() for name in names]:
+        if path.is_file() and path.name.lower() in wanted:
             found.append(path)
 
     return found[:10]
@@ -75,18 +79,6 @@ def find_files(project_path: Path, names: list[str]) -> list[Path]:
 
 def find_todo_comments(project_path: Path, max_items: int = 30) -> list[str]:
     results: list[str] = []
-
-    ignored_dirs = {
-        ".git",
-        "node_modules",
-        ".venv",
-        "venv",
-        "__pycache__",
-        "dist",
-        "build",
-        ".next",
-        ".turbo",
-    }
 
     allowed_suffixes = {
         ".py",
@@ -105,13 +97,10 @@ def find_todo_comments(project_path: Path, max_items: int = 30) -> list[str]:
         if len(results) >= max_items:
             break
 
-        if any(part in ignored_dirs for part in path.parts):
+        if any(part in IGNORED_DIRS for part in path.parts):
             continue
 
-        if not path.is_file():
-            continue
-
-        if path.suffix.lower() not in allowed_suffixes:
+        if not path.is_file() or path.suffix.lower() not in allowed_suffixes:
             continue
 
         try:
@@ -135,25 +124,13 @@ def find_todo_comments(project_path: Path, max_items: int = 30) -> list[str]:
 def get_project_tree(project_path: Path, max_items: int = 80) -> list[str]:
     items: list[str] = []
 
-    ignored_dirs = {
-        ".git",
-        "node_modules",
-        ".venv",
-        "venv",
-        "__pycache__",
-        "dist",
-        "build",
-        ".next",
-        ".turbo",
-    }
-
     for path in sorted(project_path.rglob("*")):
         if len(items) >= max_items:
             break
 
         relative_parts = path.relative_to(project_path).parts
 
-        if any(part in ignored_dirs for part in relative_parts):
+        if any(part in IGNORED_DIRS for part in relative_parts):
             continue
 
         depth = len(relative_parts)
@@ -169,29 +146,77 @@ def get_project_tree(project_path: Path, max_items: int = 80) -> list[str]:
     return items
 
 
-def analyze_project(project_path_value: str | None, log: LogFn) -> None:
+def build_human_summary(analysis: ProjectAnalysis) -> str:
+    if not analysis.get("ok"):
+        return str(analysis.get("error", "Projektanalyse fehlgeschlagen."))
+
+    parts: list[str] = [f"Projekt: {analysis.get('path')}"]
+
+    git_status = analysis.get("gitStatus", [])
+    if analysis.get("hasGit"):
+        if git_status:
+            parts.append(f"Git: {len(git_status)} lokale Änderung(en).")
+        else:
+            parts.append("Git: Arbeitsverzeichnis sauber.")
+    else:
+        parts.append("Git: kein Repository erkannt.")
+
+    commits = analysis.get("recentCommits", [])
+    if commits:
+        parts.append(f"Letzter Commit: {commits[0]}")
+
+    todos = analysis.get("todoComments", [])
+    if todos:
+        parts.append(f"Offene TODO/FIXME-Kommentare: {len(todos)}.")
+    else:
+        parts.append("Keine TODO/FIXME-Kommentare gefunden.")
+
+    todo_files = analysis.get("todoFiles", [])
+    if todo_files:
+        parts.append("TODO-Dateien: " + ", ".join(todo_files[:3]))
+
+    return " ".join(parts)
+
+
+def analyze_project(project_path_value: str | None, log: LogFn) -> ProjectAnalysis:
     if not project_path_value:
-        log("WARN", "Kein Projektpfad konfiguriert.")
-        return
+        message = "Kein Projektpfad konfiguriert."
+        log("WARN", message)
+        return {"ok": False, "error": message}
 
     project_path = Path(project_path_value)
 
     if not project_path.exists():
-        log("ERROR", f"Projektpfad existiert nicht: {project_path}")
-        return
+        message = f"Projektpfad existiert nicht: {project_path}"
+        log("ERROR", message)
+        return {"ok": False, "error": message, "path": str(project_path)}
 
     if not project_path.is_dir():
-        log("ERROR", f"Projektpfad ist kein Ordner: {project_path}")
-        return
+        message = f"Projektpfad ist kein Ordner: {project_path}"
+        log("ERROR", message)
+        return {"ok": False, "error": message, "path": str(project_path)}
 
     log("INFO", f"Projektanalyse startet: {project_path}")
 
-    git_dir = project_path / ".git"
+    analysis: ProjectAnalysis = {
+        "ok": True,
+        "path": str(project_path),
+        "hasGit": (project_path / ".git").exists(),
+        "gitStatus": [],
+        "recentCommits": [],
+        "readmeFiles": [],
+        "readmePreview": [],
+        "todoFiles": [],
+        "todoComments": [],
+        "tree": [],
+        "warnings": [],
+    }
 
-    if git_dir.exists():
+    if analysis["hasGit"]:
         ok, output = run_command(["git", "status", "--short"], project_path)
 
         if ok:
+            analysis["gitStatus"] = output.splitlines() if output else []
             if output:
                 log("PROJECT", "Git Status: Es gibt lokale Änderungen.")
                 for line in output.splitlines()[:20]:
@@ -199,34 +224,38 @@ def analyze_project(project_path_value: str | None, log: LogFn) -> None:
             else:
                 log("PROJECT", "Git Status: Arbeitsverzeichnis sauber.")
         else:
+            analysis["warnings"].append(f"Git Status konnte nicht gelesen werden: {output}")
             log("WARN", f"Git Status konnte nicht gelesen werden: {output}")
 
         ok, output = run_command(["git", "log", "--oneline", "-5"], project_path)
 
         if ok and output:
+            analysis["recentCommits"] = output.splitlines()
             log("PROJECT", "Letzte Commits:")
-            for line in output.splitlines():
+            for line in analysis["recentCommits"]:
                 log("PROJECT", f"  {line}")
         elif not ok:
+            analysis["warnings"].append(f"Git Log konnte nicht gelesen werden: {output}")
             log("WARN", f"Git Log konnte nicht gelesen werden: {output}")
 
     else:
         log("PROJECT", "Kein .git-Ordner gefunden. Git-Analyse übersprungen.")
 
     readme_files = find_files(project_path, ["README.md", "readme.md"])
+    analysis["readmeFiles"] = [str(file.relative_to(project_path)) for file in readme_files]
     if readme_files:
         readme = readme_files[0]
         log("PROJECT", f"README gefunden: {readme.relative_to(project_path)}")
 
         preview = read_file_preview(readme, max_lines=12)
-        for line in preview:
-            clean = line.strip()
-            if clean:
-                log("PROJECT", f"  README: {clean}")
+        analysis["readmePreview"] = [line.strip() for line in preview if line.strip()]
+        for line in analysis["readmePreview"]:
+            log("PROJECT", f"  README: {line}")
     else:
         log("PROJECT", "Keine README.md gefunden.")
 
     todo_files = find_files(project_path, ["TODO.md", "todo.md"])
+    analysis["todoFiles"] = [str(file.relative_to(project_path)) for file in todo_files]
     if todo_files:
         log("PROJECT", "TODO-Dateien gefunden:")
         for file in todo_files:
@@ -235,6 +264,7 @@ def analyze_project(project_path_value: str | None, log: LogFn) -> None:
         log("PROJECT", "Keine TODO.md gefunden.")
 
     comments = find_todo_comments(project_path)
+    analysis["todoComments"] = comments
     if comments:
         log("PROJECT", "Offene TODO/FIXME-Kommentare:")
         for item in comments:
@@ -243,9 +273,12 @@ def analyze_project(project_path_value: str | None, log: LogFn) -> None:
         log("PROJECT", "Keine TODO/FIXME-Kommentare gefunden.")
 
     tree = get_project_tree(project_path)
+    analysis["tree"] = tree
     if tree:
         log("PROJECT", "Projektstruktur:")
         for item in tree[:50]:
             log("PROJECT", f"  {item}")
 
+    analysis["summary"] = build_human_summary(analysis)
     log("INFO", "Projektanalyse abgeschlossen.")
+    return analysis

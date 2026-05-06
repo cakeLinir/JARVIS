@@ -1,0 +1,29 @@
+# Secrets and local configuration
+.env
+*.env
+!.env.example
+config.local.json
+*.local.json
+
+# Node.js
+node_modules/
+dist/
+coverage/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Logs and runtime data
+logs/
+*.log
+*.tmp
+*.bak
+
+# OS/editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

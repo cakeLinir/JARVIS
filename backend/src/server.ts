@@ -1,25 +1,46 @@
-﻿import Fastify from "fastify";
+import Fastify from "fastify";
+import cors from "@fastify/cors";
+import websocket from "@fastify/websocket";
+
+import { config } from "./config/config.js";
+import { loadCommands } from "./services/command-store.js";
+
+import { healthRoutes } from "./routes/health.routes.js";
+import { agentRoutes } from "./routes/agent.routes.js";
+import { newsRoutes } from "./routes/news.routes.js";
+import { openAiRoutes } from "./routes/openai.routes.js";
+import { commandRoutes } from "./routes/command.routes.js";
+import { realtimeRoutes } from "./routes/realtime.routes.js";
+import { dashboardRoutes } from "./routes/dashboard.routes.js";
+
+loadCommands();
 
 const server = Fastify({
   logger: true
 });
 
-server.get("/api/health", async () => {
-  return {
-    status: "ok",
-    service: "jarvis-backend",
-    timestamp: new Date().toISOString()
-  };
+await server.register(cors, {
+  origin: false
 });
 
-async function start() {
-  const port = Number(process.env.JARVIS_BACKEND_PORT ?? 8080);
+await server.register(websocket);
 
+await server.register(healthRoutes);
+await server.register(agentRoutes);
+await server.register(newsRoutes);
+await server.register(openAiRoutes);
+await server.register(commandRoutes);
+await server.register(realtimeRoutes);
+await server.register(dashboardRoutes);
+
+async function start() {
   try {
     await server.listen({
-      port,
+      port: config.port,
       host: "0.0.0.0"
     });
+
+    server.log.info(`JARVIS backend running on port ${config.port}`);
   } catch (error) {
     server.log.error(error);
     process.exit(1);

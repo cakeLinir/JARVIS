@@ -2,6 +2,7 @@ import json
 import os
 import subprocess
 import sys
+import threading
 import time
 from datetime import datetime
 from pathlib import Path
@@ -12,11 +13,14 @@ AGENT_DIR = Path(__file__).resolve().parents[1]
 JARVIS_ROOT = AGENT_DIR.parent
 
 CONFIG_PATH = AGENT_DIR / "config.json"
+LOCAL_CONFIG_PATH = AGENT_DIR / "config.local.json"
 LOG_DIR = JARVIS_ROOT / "logs"
 LOG_FILE = LOG_DIR / "desktop-agent.log"
 
 CREATE_NO_WINDOW = 0x08000000
 DETACHED_PROCESS = 0x00000008
+
+MORNING_ROUTINE_LOCK = threading.Lock()
 
 
 def log(level: str, message: str) -> None:
@@ -29,13 +33,47 @@ def log(level: str, message: str) -> None:
         file.write(line + "\n")
 
 
+def deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
+    result = dict(base)
+
+    for key, value in override.items():
+        if (
+            key in result
+            and isinstance(result[key], dict)
+            and isinstance(value, dict)
+        ):
+            result[key] = deep_merge(result[key], value)
+        else:
+            result[key] = value
+
+    return result
+
+
+def load_json_file(path: Path) -> dict[str, Any]:
+    with path.open("r", encoding="utf-8-sig") as file:
+        return json.load(file)
+
+
 def load_config() -> dict[str, Any]:
     if not CONFIG_PATH.exists():
         log("ERROR", f"Config nicht gefunden: {CONFIG_PATH}")
         sys.exit(1)
 
-    with CONFIG_PATH.open("r", encoding="utf-8-sig") as file:
-        return json.load(file)
+    config = load_json_file(CONFIG_PATH)
+
+    if LOCAL_CONFIG_PATH.exists():
+        config = deep_merge(config, load_json_file(LOCAL_CONFIG_PATH))
+        log("INFO", f"Lokale Config geladen: {LOCAL_CONFIG_PATH}")
+
+    env_agent_token = os.getenv("JARVIS_AGENT_TOKEN", "").strip()
+    if env_agent_token:
+        config["agentToken"] = env_agent_token
+
+    env_backend_url = os.getenv("JARVIS_BACKEND_URL", "").strip()
+    if env_backend_url:
+        config["backendUrl"] = env_backend_url
+
+    return config
 
 
 def detached_popen(command: list[str], working_dir: str | None = None) -> subprocess.Popen:
@@ -201,19 +239,6 @@ def read_todos(config: dict[str, Any]) -> list[str]:
     return items
 
 
-
-def analyze_current_project(config: dict[str, Any]) -> None:
-    try:
-        from integrations.project_analyzer import analyze_project
-
-        project_config = config.get("project", {})
-        project_path = project_config.get("lastProjectPath")
-
-        analyze_project(project_path, log)
-
-    except Exception as exc:
-        log("ERROR", f"Projektanalyse fehlgeschlagen: {exc}")
-
 def arrange_windows() -> None:
     try:
         from windows.window_manager import arrange_morning_windows
@@ -228,63 +253,296 @@ def arrange_windows() -> None:
         log("ERROR", f"Fensteranordnung fehlgeschlagen: {exc}")
 
 
-def normalize_command(command: str) -> str:
-    return command.strip().lower()
+def analyze_current_project(config: dict[str, Any]) -> str:
+    try:
+        from integrations.project_analyzer import analyze_project, build_human_summary
+
+        project_config = config.get("project", {})
+        project_path = project_config.get("lastProjectPath")
+
+        analysis = analyze_project(project_path, log)
+        return str(analysis.get("summary") or build_human_summary(analysis))
+
+    except Exception as exc:
+        log("ERROR", f"Projektanalyse fehlgeschlagen: {exc}")
+        return f"Projektanalyse fehlgeschlagen: {exc}"
+
+
+def send_agent_status_safe(config: dict[str, Any], status: str) -> None:
+    try:
+        from integrations.backend_client import send_agent_status
+
+        send_agent_status(config, log, status)
+
+    except Exception as exc:
+        log("ERROR", f"Agent-Status konnte nicht ans Backend gesendet werden: {exc}")
+
+
+def send_morning_log_safe(
+    config: dict[str, Any],
+    started_apps: list[str],
+    failed_apps: list[str],
+    todos: list[str],
+    project_summary: str,
+) -> None:
+    try:
+        from integrations.backend_client import send_morning_log
+
+        send_morning_log(
+            config=config,
+            log=log,
+            started_apps=started_apps,
+            failed_apps=failed_apps,
+            todos=todos,
+            project_summary=project_summary,
+        )
+
+    except Exception as exc:
+        log("ERROR", f"Morgenroutine-Log konnte nicht ans Backend gesendet werden: {exc}")
 
 
 def run_morning_routine(config: dict[str, Any]) -> None:
-    log("INFO", "Guten Morgen. Starte Morgenroutine.")
+    if not MORNING_ROUTINE_LOCK.acquire(blocking=False):
+        log("WARN", "Morgenroutine läuft bereits. Neuer Start wurde blockiert.")
+        return
 
-    apps = config.get("apps", {})
+    try:
+        log("INFO", "Guten Morgen. Starte Morgenroutine.")
 
-    for app_name in ["obs", "discord", "spotify", "whatsapp", "vscode"]:
-        app_config = apps.get(app_name)
+        started_apps: list[str] = []
+        failed_apps: list[str] = []
 
-        if not app_config:
-            log("WARN", f"Keine App-Konfiguration gefunden: {app_name}")
-            continue
+        apps = config.get("apps", {})
 
-        start_app(app_name, app_config)
+        for app_name in ["obs", "discord", "spotify", "whatsapp", "vscode"]:
+            app_config = apps.get(app_name)
 
-    open_todo(config)
+            if not app_config:
+                log("WARN", f"Keine App-Konfiguration gefunden: {app_name}")
+                failed_apps.append(app_name)
+                continue
 
-    todos = read_todos(config)
+            success = start_app(app_name, app_config)
 
-    if todos:
-        log("INFO", "Heutige TODOs:")
-        for item in todos:
-            log("TODO", item)
-    else:
-        log("INFO", "Keine offenen TODOs für heute gefunden.")
+            if success:
+                started_apps.append(app_name)
+            else:
+                failed_apps.append(app_name)
 
-    analyze_current_project(config)
+        todo_opened = open_todo(config)
 
-    log("INFO", "Warte kurz auf Programmfenster.")
-    time.sleep(5)
+        if todo_opened:
+            started_apps.append("todo")
+        else:
+            failed_apps.append("todo")
 
-    arrange_windows()
+        todos = read_todos(config)
 
-    log("INFO", "Morgenroutine MVP abgeschlossen.")
+        if todos:
+            log("INFO", "Heutige TODOs:")
+            for item in todos:
+                log("TODO", item)
+        else:
+            log("INFO", "Keine offenen TODOs für heute gefunden.")
+
+        project_summary = analyze_current_project(config)
+
+        send_morning_log_safe(
+            config=config,
+            started_apps=started_apps,
+            failed_apps=failed_apps,
+            todos=todos,
+            project_summary=project_summary,
+        )
+
+        log("INFO", "Warte kurz auf Programmfenster.")
+        time.sleep(5)
+
+        arrange_windows()
+
+        log("INFO", "Morgenroutine MVP abgeschlossen.")
+
+    finally:
+        MORNING_ROUTINE_LOCK.release()
+
+
+def handle_backend_command(config: dict[str, Any], command: dict[str, Any]) -> None:
+    command_id = command.get("id")
+    command_type = command.get("type")
+
+    if not command_id:
+        log("ERROR", "Backend-Command ohne ID erhalten.")
+        return
+
+    log("INFO", f"Backend-Command erhalten: {command_id} | {command_type}")
+
+    try:
+        from integrations.backend_client import complete_command
+
+        if command_type == "morning_routine":
+            run_morning_routine(config)
+
+            complete_command(
+                config=config,
+                log=log,
+                command_id=command_id,
+                status="completed",
+                result="Morning Routine wurde lokal ausgeführt.",
+                details={"type": command_type},
+            )
+            return
+
+        if command_type == "dev_news":
+            complete_command(
+                config=config,
+                log=log,
+                command_id=command_id,
+                status="completed",
+                result="Dev-News werden aktuell über Backend /api/news/dev bereitgestellt.",
+                details={"type": command_type},
+            )
+            return
+
+        if command_type == "app_open":
+            payload = command.get("payload") or {}
+            app_name = str(payload.get("app", "")) if isinstance(payload, dict) else ""
+            app_config = config.get("apps", {}).get(app_name)
+
+            if not app_name or not app_config:
+                complete_command(
+                    config=config,
+                    log=log,
+                    command_id=command_id,
+                    status="rejected",
+                    result=f"App nicht konfiguriert: {app_name}",
+                    details={"type": command_type, "app": app_name},
+                )
+                return
+
+            success = start_app(app_name, app_config)
+            complete_command(
+                config=config,
+                log=log,
+                command_id=command_id,
+                status="completed" if success else "failed",
+                result=f"App-Start {'erfolgreich' if success else 'fehlgeschlagen'}: {app_name}",
+                details={"type": command_type, "app": app_name},
+            )
+            return
+
+        if command_type == "system_stop":
+            complete_command(
+                config=config,
+                log=log,
+                command_id=command_id,
+                status="completed",
+                result="System-Stop Command erhalten. Agent bleibt bis zum lokalen Loop-Ende aktiv.",
+                details={"type": command_type},
+            )
+            return
+
+        complete_command(
+            config=config,
+            log=log,
+            command_id=command_id,
+            status="rejected",
+            result=f"Unbekannter Command-Typ: {command_type}",
+            details={"type": command_type},
+        )
+
+    except Exception as exc:
+        log("ERROR", f"Backend-Command fehlgeschlagen: {command_id} | {exc}")
+
+        try:
+            from integrations.backend_client import complete_command
+
+            complete_command(
+                config=config,
+                log=log,
+                command_id=command_id,
+                status="failed",
+                result=str(exc),
+                details={"type": command_type},
+            )
+        except Exception as inner_exc:
+            log("ERROR", f"Command-Fehler konnte nicht ans Backend gesendet werden: {inner_exc}")
+
+
+def command_poll_loop(config: dict[str, Any], stop_event: threading.Event) -> None:
+    log("INFO", "Backend Command Polling gestartet.")
+
+    while not stop_event.is_set():
+        try:
+            from integrations.backend_client import get_next_command
+
+            command = get_next_command(config, log)
+
+            if command:
+                handle_backend_command(config, command)
+
+        except Exception as exc:
+            log("ERROR", f"Command Polling Fehler: {exc}")
+
+        stop_event.wait(5)
+
+    log("INFO", "Backend Command Polling beendet.")
+
+
+def normalize_command(command: str) -> str:
+    return command.strip().lower()
 
 
 def main() -> None:
     config = load_config()
     wake_words = config.get("wakeWords", [])
 
+    stop_event = threading.Event()
+
     log("INFO", "JARVIS Local Client gestartet.")
     log("INFO", "Textmodus aktiv. Voice kommt in einer späteren Phase.")
     log("INFO", 'Teste mit: guten morgen jarvis')
     log("INFO", 'Beenden mit: exit')
 
-    while True:
+    send_agent_status_safe(config, "online")
+
+    def request_stop() -> None:
+        send_agent_status_safe(config, "stopped")
+        stop_event.set()
+        log("WARN", "Lokaler Stop wurde angefordert.")
+
+    local_api_server = None
+    try:
+        from local_api import start_local_api
+
+        local_api_server = start_local_api(
+            config=config,
+            log=log,
+            run_morning=lambda: run_morning_routine(config),
+            stop_agent=request_stop,
+        )
+    except Exception as exc:
+        log("ERROR", f"Lokale Agent-API konnte nicht gestartet werden: {exc}")
+
+    polling_thread = threading.Thread(
+        target=command_poll_loop,
+        args=(config, stop_event),
+        daemon=True,
+    )
+    polling_thread.start()
+
+    while not stop_event.is_set():
         try:
             command = normalize_command(input("> "))
 
             if command in ["exit", "quit", "beenden"]:
+                send_agent_status_safe(config, "offline")
+                stop_event.set()
                 log("INFO", "JARVIS Local Client wird beendet.")
                 break
 
             if command == "jarvis, stopp":
+                send_agent_status_safe(config, "stopped")
+                stop_event.set()
                 log("WARN", "Not-Aus ausgelöst.")
                 break
 
@@ -298,8 +556,13 @@ def main() -> None:
             log("WARN", f"Unbekannter Befehl: {command}")
 
         except KeyboardInterrupt:
+            send_agent_status_safe(config, "interrupted")
+            stop_event.set()
             log("WARN", "Abbruch durch Benutzer.")
             break
+
+    if local_api_server:
+        local_api_server.stop()
 
 
 if __name__ == "__main__":

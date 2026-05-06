@@ -1,0 +1,24 @@
+{
+  "backendUrl": "https://DEIN-VPS-DOMAIN.example",
+  "agentToken": "NUR_LOKALER_AGENT_TOKEN",
+  "localApi": {
+    "token": "NUR_LOKALER_LOCAL_API_TOKEN"
+  },
+  "apps": {
+    "obs": {
+      "path": "D:\\steam\\steamapps\\common\\OBS Studio\\bin\\64bit\\obs64.exe",
+      "workingDir": "D:\\steam\\steamapps\\common\\OBS Studio\\bin\\64bit"
+    },
+    "vscode": {
+      "path": "C:\\Users\\DEIN_USER\\AppData\\Local\\Programs\\Microsoft VS Code\\Code.exe",
+      "args": ["C:\\Users\\DEIN_USER\\Desktop\\JARVIS"],
+      "workingDir": "C:\\Users\\DEIN_USER\\AppData\\Local\\Programs\\Microsoft VS Code"
+    }
+  },
+  "todo": {
+    "markdownPath": "C:\\Users\\DEIN_USER\\Desktop\\JARVIS\\data\\todo.md"
+  },
+  "project": {
+    "lastProjectPath": "C:\\Users\\DEIN_USER\\Desktop\\JARVIS"
+  }
+}

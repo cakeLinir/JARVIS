@@ -1,56 +1,59 @@
 {
-    "backendUrl":  "https://YOUR-VPS-DOMAIN.example",
-    "agentToken":  "CHANGE_ME",
-    "wakeWords":  [
-                      "guten morgen jarvis",
-                      "hallo jarvis",
-                      "jarvis"
-                  ],
-    "apps":  {
-                 "obs":  {
-                             "enabled":  true,
-                             "mode":  "path",
-                             "path":  "D:\\steam\\steamapps\\common\\OBS Studio\\bin\\64bit\\obs64.exe",
-                             "args":  [
-
-                                      ],
-                             "workingDir":  "D:\\steam\\steamapps\\common\\OBS Studio\\bin\\64bit"
-                         },
-                 "discord":  {
-                                 "enabled":  true,
-                                 "mode":  "uri",
-                                 "uri":  "discord://-/channels/1171118476929269820/1434639335772262552"
-                             },
-                 "spotify":  {
-                                 "enabled":  true,
-                                 "mode":  "uri",
-                                 "uri":  "spotify:"
-                             },
-                 "whatsapp":  {
-                                  "enabled":  true,
-                                  "mode":  "uri",
-                                  "uri":  "whatsapp:"
-                              },
-                 "vscode":  {
-                                "enabled":  true,
-                                "mode":  "path",
-                                "command":  "code",
-                                "args":  [
-                                             "C:\\Users\\hunde\\Desktop\\JARVIS"
-                                         ],
-                                "workingDir":  "C:\\Users\\hunde\\AppData\\Local\\Programs\\Microsoft VS Code",
-                                "path":  "C:\\Users\\hunde\\AppData\\Local\\Programs\\Microsoft VS Code\\Code.exe"
-                            }
-             },
-    "todo":  {
-                 "provider":  "markdown",
-                 "markdownPath":  "C:\\Users\\hunde\\Desktop\\JARVIS\\data\\todo.md"
-             },
-    "project":  {
-                    "lastProjectPath":  "C:\\Users\\hunde\\Desktop\\JARVIS"
-                },
-    "discord":  {
-                    "guildId":  "1171118476929269820",
-                    "channelId":  "1434639335772262552"
-                }
+  "backendUrl": "http://localhost:8080",
+  "agentToken": "CHANGE_ME_AGENT_TOKEN_OR_SET_ENV_JARVIS_AGENT_TOKEN",
+  "wakeWords": [
+    "guten morgen jarvis",
+    "hallo jarvis",
+    "jarvis"
+  ],
+  "localApi": {
+    "enabled": true,
+    "host": "127.0.0.1",
+    "port": 8765,
+    "token": "CHANGE_ME_LOCAL_API_TOKEN"
+  },
+  "apps": {
+    "obs": {
+      "enabled": true,
+      "mode": "path",
+      "path": "C:\\PATH\\TO\\OBS Studio\\bin\\64bit\\obs64.exe",
+      "args": [],
+      "workingDir": "C:\\PATH\\TO\\OBS Studio\\bin\\64bit"
+    },
+    "discord": {
+      "enabled": true,
+      "mode": "uri",
+      "uri": "discord://-/channels/1171118476929269820/1434639335772262552"
+    },
+    "spotify": {
+      "enabled": true,
+      "mode": "uri",
+      "uri": "spotify:"
+    },
+    "whatsapp": {
+      "enabled": true,
+      "mode": "uri",
+      "uri": "whatsapp:"
+    },
+    "vscode": {
+      "enabled": true,
+      "mode": "path",
+      "path": "C:\\PATH\\TO\\Microsoft VS Code\\Code.exe",
+      "args": [
+        "C:\\PATH\\TO\\JARVIS"
+      ],
+      "workingDir": "C:\\PATH\\TO\\Microsoft VS Code"
+    }
+  },
+  "todo": {
+    "provider": "markdown",
+    "markdownPath": "C:\\PATH\\TO\\JARVIS\\data\\todo.md"
+  },
+  "project": {
+    "lastProjectPath": "C:\\PATH\\TO\\JARVIS"
+  },
+  "discord": {
+    "guildId": "1171118476929269820",
+    "channelId": "1434639335772262552"
+  }
 }
