@@ -153,3 +153,20 @@ vps-update-backend.ps1
 - Public HTTP ist blockiert, außer mit explizitem `-AllowInsecurePublicHttp`.
 - Keine Secrets werden ausgegeben.
 - Low-Level-Skripte bleiben erhalten, aber operative Nutzung läuft über `jarvis.ps1`.
+
+## Local Agent
+
+```powershell
+.\scripts\jarvis.ps1 agent start
+.\scripts\jarvis.ps1 agent status
+.\scripts\jarvis.ps1 agent diagnose
+.\scripts\jarvis.ps1 agent config
+.\scripts\jarvis.ps1 agent install-task
+.\scripts\jarvis.ps1 agent uninstall-task
+```
+
+Details:
+
+```text
+docs/LOCAL_AGENT_OPERATIONS.md
+```

@@ -99,7 +99,7 @@ $config |
 Write-Ok "Lokale Agent-Konfiguration aktualisiert."
 Write-Host "Backend URL: $BackendUrl"
 Write-Host "Agent Name:  $AgentName"
-Write-Host "Agent Token: $(if ($AgentToken.Trim()) { 'gesetzt' } else { 'unverändert/nicht gesetzt' })"
+Write-Host "Agent Token: $(if ($AgentToken.Trim()) { 'neu gesetzt' } else { 'bestehender Wert beibehalten' })"
 Write-Host ""
 Write-Host "Nächster Test:" -ForegroundColor Cyan
 Write-Host "  .\scripts\test-local-agent-vps-connection.ps1"

@@ -40,6 +40,15 @@ function Write-Usage {
     Write-Host "  watchdog install [-EveryMinutes 5]"
     Write-Host "  watchdog uninstall"
     Write-Host ""
+
+    Write-Host "Agent:"
+    Write-Host "  agent start"
+    Write-Host "  agent status"
+    Write-Host "  agent diagnose"
+    Write-Host "  agent config"
+    Write-Host "  agent install-task"
+    Write-Host "  agent uninstall-task"
+    Write-Host ""
     Write-Host "Dashboard:"
     Write-Host "  dashboard check"
     Write-Host "  dashboard build"
@@ -61,7 +70,10 @@ function Write-Usage {
 
 function Invoke-Script {
     param(
+        [Parameter(Mandatory = $true, Position = 0)]
         [string]$RelativePath,
+
+        [Parameter(Position = 1)]
         [string[]]$Arguments = @()
     )
 
@@ -137,10 +149,10 @@ switch ($areaKey) {
     "watchdog" {
         switch ($actionKey) {
             "run" {
-                Invoke-Script "scripts\backend-watchdog.ps1" @("-RepoRoot", $RepoRoot)
+                Invoke-Script "scripts\backend-watchdog.ps1" -Arguments @("-RepoRoot", $RepoRoot)
             }
             "install" {
-                Invoke-Script "scripts\install-backend-watchdog-task.ps1" @("-RepoRoot", $RepoRoot, "-EveryMinutes", "$EveryMinutes")
+                Invoke-Script "scripts\install-backend-watchdog-task.ps1" -Arguments @("-RepoRoot", $RepoRoot, "-EveryMinutes", "$EveryMinutes")
             }
             "uninstall" {
                 Invoke-Script "scripts\uninstall-backend-watchdog-task.ps1"
@@ -152,13 +164,42 @@ switch ($areaKey) {
         }
     }
 
+
+    "agent" {
+        switch ($actionKey) {
+            "start" {
+                Invoke-Script "scripts\run-local-agent.cmd"
+            }
+            "status" {
+                Invoke-Script "scripts\local-agent-status.ps1"
+            }
+            "diagnose" {
+                Invoke-Script "scripts\diagnose-local-agent-vps.ps1" -Arguments @("-RepoRoot", $RepoRoot)
+            }
+            "config" {
+                Invoke-Script "scripts\configure-local-agent-vps.ps1" -Arguments @("-RepoRoot", $RepoRoot, "-BackendUrl", "https://jarvis.hundekuchenlive.de", "-AgentName", "jarvis-desktop-agent")
+            }
+            "install-task" {
+                Invoke-Script "scripts\install-local-agent-task.ps1" -Arguments @("-RepoRoot", $RepoRoot)
+            }
+            "uninstall-task" {
+                Invoke-Script "scripts\uninstall-local-agent-task.ps1"
+            }
+            default {
+                Write-Usage
+                exit 2
+            }
+        }
+    }
+
+
     "dashboard" {
         switch ($actionKey) {
             "check" {
-                Invoke-Script "scripts\vps-dashboard-source-check.ps1" @("-RepoRoot", $RepoRoot)
+                Invoke-Script "scripts\vps-dashboard-source-check.ps1" -Arguments @("-RepoRoot", $RepoRoot)
             }
             "build" {
-                Invoke-Script "scripts\dashboard-build.ps1" @("-RepoRoot", $RepoRoot)
+                Invoke-Script "scripts\dashboard-build.ps1" -Arguments @("-RepoRoot", $RepoRoot)
             }
             "deploy" {
                 $args = @("-RepoRoot", $RepoRoot)
@@ -192,7 +233,7 @@ switch ($areaKey) {
     "config" {
         switch ($actionKey) {
             "https" {
-                Invoke-Script "scripts\configure-https-backend.ps1" @("-RepoRoot", $RepoRoot)
+                Invoke-Script "scripts\configure-https-backend.ps1" -Arguments @("-RepoRoot", $RepoRoot)
             }
             "public" {
                 if (-not $AllowInsecurePublicHttp) {
@@ -201,7 +242,7 @@ switch ($areaKey) {
                     exit 2
                 }
 
-                Invoke-Script "scripts\configure-public-backend.ps1" @("-RepoRoot", $RepoRoot)
+                Invoke-Script "scripts\configure-public-backend.ps1" -Arguments @("-RepoRoot", $RepoRoot)
             }
             default {
                 Write-Usage
@@ -213,10 +254,10 @@ switch ($areaKey) {
     "preflight" {
         switch ($actionKey) {
             "local" {
-                Invoke-Script "scripts\preflight-local.ps1" @("-RepoRoot", $RepoRoot)
+                Invoke-Script "scripts\preflight-local.ps1" -Arguments @("-RepoRoot", $RepoRoot)
             }
             "vps" {
-                Invoke-Script "scripts\preflight-vps.ps1" @("-RepoRoot", $RepoRoot)
+                Invoke-Script "scripts\preflight-vps.ps1" -Arguments @("-RepoRoot", $RepoRoot)
             }
             default {
                 Write-Usage
