@@ -71,15 +71,15 @@ function publicBaseUrlFromEnv(): string {
     return explicit.replace(/\/+$/, "");
   }
 
-  const host = process.env.JARVIS_PUBLIC_HOST?.trim() || "46.225.14.84";
+  const host = process.env.JARVIS_PUBLIC_HOST?.trim() || "jarvis.hundekuchenlive.de";
   const port = numberFromEnv(process.env.JARVIS_BACKEND_PORT, 8181);
-  return `http://${host}:${port}`;
+  return host === "jarvis.hundekuchenlive.de" ? "https://jarvis.hundekuchenlive.de" : `http://${host}:${port}`;
 }
 
 const publicBaseUrl = publicBaseUrlFromEnv();
 
 export const config = {
-  host: process.env.JARVIS_BACKEND_HOST?.trim() || "0.0.0.0",
+  host: process.env.JARVIS_BACKEND_HOST?.trim() || "127.0.0.1",
   port: numberFromEnv(process.env.JARVIS_BACKEND_PORT, 8181),
   publicBaseUrl,
 

@@ -1,0 +1,15 @@
+# JARVIS reverse proxy
+# Target backend: http://127.0.0.1:8181
+
+jarvis.hundekuchenlive.de {
+	encode zstd gzip
+
+	header {
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "no-referrer"
+		X-Frame-Options "DENY"
+		Permissions-Policy "camera=(), microphone=(), geolocation=()"
+	}
+
+	reverse_proxy 127.0.0.1:8181
+}
