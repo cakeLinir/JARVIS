@@ -170,3 +170,29 @@ Details:
 ```text
 docs/LOCAL_AGENT_OPERATIONS.md
 ```
+
+## Patch 025.3 Hinweis
+
+`jarvis.ps1` wurde als zentraler CLI-Einstiegspunkt neu aufgebaut, weil PowerShell beim Weiterreichen von Arrays an Subskripte `-RepoRoot` als Wert statt als Parameternamen übergeben hatte.
+
+Zusätzlich gibt es:
+
+```powershell
+.\scripts\jarvis.ps1 agent stop
+```
+
+Damit kann ein bereits laufender lokaler Agent beendet werden, bevor ein neuer gestartet wird.
+
+## Patch 025.6 Hinweis
+
+`agent stop` nutzt jetzt zusätzlich den Besitzer des lokalen Agent-Ports:
+
+```text
+127.0.0.1:8765
+```
+
+Wenn ein Prozess Port `8765` besitzt, aber nicht eindeutig nach JARVIS Agent aussieht, wird er nicht automatisch beendet. Erzwingen:
+
+```powershell
+.\scripts\stop-local-agent.ps1 -ForceByPort
+```

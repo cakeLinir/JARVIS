@@ -40,9 +40,9 @@ function Write-Usage {
     Write-Host "  watchdog install [-EveryMinutes 5]"
     Write-Host "  watchdog uninstall"
     Write-Host ""
-
     Write-Host "Agent:"
     Write-Host "  agent start"
+    Write-Host "  agent stop"
     Write-Host "  agent status"
     Write-Host "  agent diagnose"
     Write-Host "  agent config"
@@ -68,13 +68,12 @@ function Write-Usage {
     Write-Host ""
 }
 
-function Invoke-Script {
+function Invoke-JarvisScript {
     param(
-        [Parameter(Mandatory = $true, Position = 0)]
+        [Parameter(Mandatory = $true)]
         [string]$RelativePath,
 
-        [Parameter(Position = 1)]
-        [string[]]$Arguments = @()
+        [hashtable]$NamedArgs = @{}
     )
 
     $scriptPath = Join-Path $RepoRoot $RelativePath
@@ -84,7 +83,7 @@ function Invoke-Script {
         exit 2
     }
 
-    & $scriptPath @Arguments
+    & $scriptPath @NamedArgs
     exit $LASTEXITCODE
 }
 
@@ -100,140 +99,130 @@ switch ($areaKey) {
     "backend" {
         switch ($actionKey) {
             "start" {
-                $args = @("-RepoRoot", $RepoRoot)
-                if ($Build) { $args += "-Build" }
-                Invoke-Script "scripts\backend-start.ps1" $args
+                $args = @{ RepoRoot = $RepoRoot }
+                if ($Build) { $args["Build"] = $true }
+                Invoke-JarvisScript "scripts\backend-start.ps1" -NamedArgs $args
             }
             "stop" {
-                Invoke-Script "scripts\backend-stop.ps1" @("-RepoRoot", $RepoRoot)
+                Invoke-JarvisScript "scripts\backend-stop.ps1" -NamedArgs @{ RepoRoot = $RepoRoot }
             }
             "restart" {
-                $args = @("-RepoRoot", $RepoRoot)
-                if ($Build) { $args += "-Build" }
-                Invoke-Script "scripts\backend-restart.ps1" $args
+                $args = @{ RepoRoot = $RepoRoot }
+                if ($Build) { $args["Build"] = $true }
+                Invoke-JarvisScript "scripts\backend-restart.ps1" -NamedArgs $args
             }
             "status" {
-                Invoke-Script "scripts\backend-status.ps1" @("-RepoRoot", $RepoRoot)
+                Invoke-JarvisScript "scripts\backend-status.ps1" -NamedArgs @{ RepoRoot = $RepoRoot }
             }
             "health" {
-                Invoke-Script "scripts\backend-health.ps1"
+                Invoke-JarvisScript "scripts\backend-health.ps1"
             }
-            default {
-                Write-Usage
-                exit 2
-            }
+            default { Write-Usage; exit 2 }
         }
     }
 
     "task" {
         switch ($actionKey) {
             "install" {
-                $args = @("-RepoRoot", $RepoRoot)
-                if ($AtStartup) { $args += "-AtStartup" }
-                if ($AtLogon) { $args += "-AtLogon" }
-                Invoke-Script "scripts\install-backend-task.ps1" $args
+                $args = @{ RepoRoot = $RepoRoot }
+                if ($AtStartup) { $args["AtStartup"] = $true }
+                if ($AtLogon) { $args["AtLogon"] = $true }
+                Invoke-JarvisScript "scripts\install-backend-task.ps1" -NamedArgs $args
             }
             "uninstall" {
-                Invoke-Script "scripts\uninstall-backend-task.ps1"
+                Invoke-JarvisScript "scripts\uninstall-backend-task.ps1"
             }
             "status" {
-                Invoke-Script "scripts\backend-task-status.ps1"
+                Invoke-JarvisScript "scripts\backend-task-status.ps1"
             }
-            default {
-                Write-Usage
-                exit 2
-            }
+            default { Write-Usage; exit 2 }
         }
     }
 
     "watchdog" {
         switch ($actionKey) {
             "run" {
-                Invoke-Script "scripts\backend-watchdog.ps1" -Arguments @("-RepoRoot", $RepoRoot)
+                Invoke-JarvisScript "scripts\backend-watchdog.ps1" -NamedArgs @{ RepoRoot = $RepoRoot }
             }
             "install" {
-                Invoke-Script "scripts\install-backend-watchdog-task.ps1" -Arguments @("-RepoRoot", $RepoRoot, "-EveryMinutes", "$EveryMinutes")
+                Invoke-JarvisScript "scripts\install-backend-watchdog-task.ps1" -NamedArgs @{
+                    RepoRoot = $RepoRoot
+                    EveryMinutes = $EveryMinutes
+                }
             }
             "uninstall" {
-                Invoke-Script "scripts\uninstall-backend-watchdog-task.ps1"
+                Invoke-JarvisScript "scripts\uninstall-backend-watchdog-task.ps1"
             }
-            default {
-                Write-Usage
-                exit 2
-            }
+            default { Write-Usage; exit 2 }
         }
     }
-
 
     "agent" {
         switch ($actionKey) {
             "start" {
-                Invoke-Script "scripts\run-local-agent.cmd"
+                Invoke-JarvisScript "scripts\run-local-agent.cmd"
+            }
+            "stop" {
+                Invoke-JarvisScript "scripts\stop-local-agent.ps1" -NamedArgs @{ RepoRoot = $RepoRoot }
             }
             "status" {
-                Invoke-Script "scripts\local-agent-status.ps1"
+                Invoke-JarvisScript "scripts\local-agent-status.ps1"
             }
             "diagnose" {
-                Invoke-Script "scripts\diagnose-local-agent-vps.ps1" -Arguments @("-RepoRoot", $RepoRoot)
+                Invoke-JarvisScript "scripts\diagnose-local-agent-vps.ps1" -NamedArgs @{ RepoRoot = $RepoRoot }
             }
             "config" {
-                Invoke-Script "scripts\configure-local-agent-vps.ps1" -Arguments @("-RepoRoot", $RepoRoot, "-BackendUrl", "https://jarvis.hundekuchenlive.de", "-AgentName", "jarvis-desktop-agent")
+                Invoke-JarvisScript "scripts\configure-local-agent-vps.ps1" -NamedArgs @{
+                    RepoRoot = $RepoRoot
+                    BackendUrl = "https://jarvis.hundekuchenlive.de"
+                    AgentName = "jarvis-desktop-agent"
+                }
             }
             "install-task" {
-                Invoke-Script "scripts\install-local-agent-task.ps1" -Arguments @("-RepoRoot", $RepoRoot)
+                Invoke-JarvisScript "scripts\install-local-agent-task.ps1" -NamedArgs @{ RepoRoot = $RepoRoot }
             }
             "uninstall-task" {
-                Invoke-Script "scripts\uninstall-local-agent-task.ps1"
+                Invoke-JarvisScript "scripts\uninstall-local-agent-task.ps1"
             }
-            default {
-                Write-Usage
-                exit 2
-            }
+            default { Write-Usage; exit 2 }
         }
     }
-
 
     "dashboard" {
         switch ($actionKey) {
             "check" {
-                Invoke-Script "scripts\vps-dashboard-source-check.ps1" -Arguments @("-RepoRoot", $RepoRoot)
+                Invoke-JarvisScript "scripts\vps-dashboard-source-check.ps1" -NamedArgs @{ RepoRoot = $RepoRoot }
             }
             "build" {
-                Invoke-Script "scripts\dashboard-build.ps1" -Arguments @("-RepoRoot", $RepoRoot)
+                Invoke-JarvisScript "scripts\dashboard-build.ps1" -NamedArgs @{ RepoRoot = $RepoRoot }
             }
             "deploy" {
-                $args = @("-RepoRoot", $RepoRoot)
-                if ($ReloadCaddy) { $args += "-ReloadCaddy" }
-                Invoke-Script "scripts\deploy-dashboard.ps1" $args
+                $args = @{ RepoRoot = $RepoRoot }
+                if ($ReloadCaddy) { $args["ReloadCaddy"] = $true }
+                Invoke-JarvisScript "scripts\deploy-dashboard.ps1" -NamedArgs $args
             }
-            default {
-                Write-Usage
-                exit 2
-            }
+            default { Write-Usage; exit 2 }
         }
     }
 
     "caddy" {
         switch ($actionKey) {
             "install" {
-                $args = @("-RepoRoot", $RepoRoot)
-                if ($ReloadCaddy) { $args += "-Reload" }
-                Invoke-Script "scripts\caddy-install-jarvis-config.ps1" $args
+                $args = @{ RepoRoot = $RepoRoot }
+                if ($ReloadCaddy) { $args["Reload"] = $true }
+                Invoke-JarvisScript "scripts\caddy-install-jarvis-config.ps1" -NamedArgs $args
             }
             "health" {
-                Invoke-Script "scripts\caddy-health.ps1"
+                Invoke-JarvisScript "scripts\caddy-health.ps1"
             }
-            default {
-                Write-Usage
-                exit 2
-            }
+            default { Write-Usage; exit 2 }
         }
     }
 
     "config" {
         switch ($actionKey) {
             "https" {
-                Invoke-Script "scripts\configure-https-backend.ps1" -Arguments @("-RepoRoot", $RepoRoot)
+                Invoke-JarvisScript "scripts\configure-https-backend.ps1" -NamedArgs @{ RepoRoot = $RepoRoot }
             }
             "public" {
                 if (-not $AllowInsecurePublicHttp) {
@@ -242,27 +231,24 @@ switch ($areaKey) {
                     exit 2
                 }
 
-                Invoke-Script "scripts\configure-public-backend.ps1" -Arguments @("-RepoRoot", $RepoRoot)
+                Invoke-JarvisScript "scripts\configure-public-backend.ps1" -NamedArgs @{
+                    RepoRoot = $RepoRoot
+                    AllowInsecurePublicHttp = $true
+                }
             }
-            default {
-                Write-Usage
-                exit 2
-            }
+            default { Write-Usage; exit 2 }
         }
     }
 
     "preflight" {
         switch ($actionKey) {
             "local" {
-                Invoke-Script "scripts\preflight-local.ps1" -Arguments @("-RepoRoot", $RepoRoot)
+                Invoke-JarvisScript "scripts\preflight-local.ps1" -NamedArgs @{ RepoRoot = $RepoRoot }
             }
             "vps" {
-                Invoke-Script "scripts\preflight-vps.ps1" -Arguments @("-RepoRoot", $RepoRoot)
+                Invoke-JarvisScript "scripts\preflight-vps.ps1" -NamedArgs @{ RepoRoot = $RepoRoot }
             }
-            default {
-                Write-Usage
-                exit 2
-            }
+            default { Write-Usage; exit 2 }
         }
     }
 
