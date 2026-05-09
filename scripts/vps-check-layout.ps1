@@ -59,7 +59,7 @@ function Test-GitTracked([string]$RelativePath) {
         return [bool]($output | Where-Object { $_ -eq $RelativePath })
     }
     catch {
-        Write-Warn "Git-Tracking-Prüfung fehlgeschlagen für $RelativePath: $($_.Exception.Message)"
+        Write-Warn "Git-Tracking-Prüfung fehlgeschlagen für ${RelativePath}: $($_.Exception.Message)"
         return $false
     }
 }
