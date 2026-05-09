@@ -1,5 +1,6 @@
-# JARVIS reverse proxy
-# Target backend: http://127.0.0.1:8181
+# JARVIS reverse proxy + static dashboard
+# Frontend: dashboard/dist
+# Backend:  http://127.0.0.1:8181
 
 jarvis.hundekuchenlive.de {
 	encode zstd gzip
@@ -11,5 +12,21 @@ jarvis.hundekuchenlive.de {
 		Permissions-Policy "camera=(), microphone=(), geolocation=()"
 	}
 
-	reverse_proxy 127.0.0.1:8181
+	handle /api/* {
+		reverse_proxy 127.0.0.1:8181
+	}
+
+	handle /dashboard/auth/* {
+		reverse_proxy 127.0.0.1:8181
+	}
+
+	handle /dashboard/logout {
+		reverse_proxy 127.0.0.1:8181
+	}
+
+	handle {
+		root * C:\Bots\JARVIS\dashboard\dist
+		try_files {path} /index.html
+		file_server
+	}
 }

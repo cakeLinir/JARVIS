@@ -48,3 +48,9 @@ jarvis_patch_*.diff
 backend/.runtime/
 backend/data/commands.json
 backend/data/audit-log.jsonl
+# JARVIS dashboard build artifacts
+dashboard/node_modules/
+dashboard/dist/
+dashboard/.vite/
+dashboard/*.tsbuildinfo
+dashboard/node_modules/.tmp/
