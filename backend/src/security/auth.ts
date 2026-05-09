@@ -102,11 +102,16 @@ function parseCookies(request: FastifyRequest): Record<string, string> {
   return result;
 }
 
-function cookieHeader(name: string, value: string, maxAgeSeconds: number): string {
+function cookieHeader(
+  name: string,
+  value: string,
+  maxAgeSeconds: number,
+  sameSite: "Strict" | "Lax" = "Strict"
+): string {
   const parts = [
     `${name}=${encodeURIComponent(value)}`,
     "HttpOnly",
-    "SameSite=Strict",
+    `SameSite=${sameSite}`,
     "Path=/",
     `Max-Age=${maxAgeSeconds}`
   ];
@@ -122,7 +127,7 @@ function clearCookieHeader(name: string): string {
   return [
     `${name}=`,
     "HttpOnly",
-    "SameSite=Strict",
+    "SameSite=Lax",
     "Path=/",
     "Max-Age=0"
   ].join("; ");
@@ -136,7 +141,8 @@ export function dashboardOAuthStateSetCookieHeader(state: string): string {
   return cookieHeader(
     config.dashboardStateCookieName,
     state,
-    config.dashboardOAuthStateTtlSeconds
+    config.dashboardOAuthStateTtlSeconds,
+    "Lax"
   );
 }
 
@@ -198,7 +204,8 @@ export function dashboardSessionSetCookieHeader(sessionToken: string): string {
   return cookieHeader(
     config.dashboardSessionCookieName,
     sessionToken,
-    config.dashboardSessionIdleSeconds
+    config.dashboardSessionIdleSeconds,
+    "Strict"
   );
 }
 
