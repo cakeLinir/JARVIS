@@ -1,20 +1,26 @@
 import type { FastifyRequest, FastifyReply } from "fastify";
-import { createHmac, timingSafeEqual } from "node:crypto";
+import { randomBytes, timingSafeEqual } from "node:crypto";
 import { config, isUsableSecret } from "../config/config.js";
 
-type DashboardSessionPayload = {
-  type: "dashboard";
-  iat: number;
-  exp: number;
+export type DashboardSession = {
+  token: string;
+  discordUserId: string;
+  username?: string;
+  globalName?: string;
+  roleIds: string[];
+  createdAt: number;
+  lastActivityAt: number;
+  expiresAt: number;
 };
 
-function base64UrlEncode(value: string | Buffer): string {
-  return Buffer.from(value)
-    .toString("base64url");
+const dashboardSessions = new Map<string, DashboardSession>();
+
+function nowMs(): number {
+  return Date.now();
 }
 
-function base64UrlDecode(value: string): string {
-  return Buffer.from(value, "base64url").toString("utf-8");
+function randomToken(): string {
+  return randomBytes(32).toString("base64url");
 }
 
 function extractBearerToken(request: FastifyRequest): string | null {
@@ -96,63 +102,13 @@ function parseCookies(request: FastifyRequest): Record<string, string> {
   return result;
 }
 
-function signPayload(encodedPayload: string): string {
-  return createHmac("sha256", config.dashboardToken)
-    .update(encodedPayload)
-    .digest("base64url");
-}
-
-export function createDashboardSessionCookie(): string {
-  const now = Math.floor(Date.now() / 1000);
-  const payload: DashboardSessionPayload = {
-    type: "dashboard",
-    iat: now,
-    exp: now + config.dashboardSessionTtlSeconds
-  };
-
-  const encodedPayload = base64UrlEncode(JSON.stringify(payload));
-  const signature = signPayload(encodedPayload);
-  return `${encodedPayload}.${signature}`;
-}
-
-function verifyDashboardSessionCookie(value: string | undefined): boolean {
-  if (!value || !isUsableSecret(config.dashboardToken)) {
-    return false;
-  }
-
-  const [encodedPayload, signature] = value.split(".");
-
-  if (!encodedPayload || !signature) {
-    return false;
-  }
-
-  const expectedSignature = signPayload(encodedPayload);
-
-  if (!safeEquals(signature, expectedSignature)) {
-    return false;
-  }
-
-  try {
-    const payload = JSON.parse(base64UrlDecode(encodedPayload)) as DashboardSessionPayload;
-
-    if (payload.type !== "dashboard") {
-      return false;
-    }
-
-    const now = Math.floor(Date.now() / 1000);
-    return payload.exp > now;
-  } catch {
-    return false;
-  }
-}
-
-export function dashboardSessionSetCookieHeader(sessionValue: string): string {
+function cookieHeader(name: string, value: string, maxAgeSeconds: number): string {
   const parts = [
-    `${config.dashboardSessionCookieName}=${encodeURIComponent(sessionValue)}`,
+    `${name}=${encodeURIComponent(value)}`,
     "HttpOnly",
     "SameSite=Strict",
     "Path=/",
-    `Max-Age=${config.dashboardSessionTtlSeconds}`
+    `Max-Age=${maxAgeSeconds}`
   ];
 
   if (config.dashboardCookieSecure) {
@@ -162,9 +118,9 @@ export function dashboardSessionSetCookieHeader(sessionValue: string): string {
   return parts.join("; ");
 }
 
-export function dashboardSessionClearCookieHeader(): string {
+function clearCookieHeader(name: string): string {
   return [
-    `${config.dashboardSessionCookieName}=`,
+    `${name}=`,
     "HttpOnly",
     "SameSite=Strict",
     "Path=/",
@@ -172,15 +128,153 @@ export function dashboardSessionClearCookieHeader(): string {
   ].join("; ");
 }
 
-export function isDashboardRequestAuthorized(request: FastifyRequest): boolean {
+export function createDashboardOAuthState(): string {
+  return randomToken();
+}
+
+export function dashboardOAuthStateSetCookieHeader(state: string): string {
+  return cookieHeader(
+    config.dashboardStateCookieName,
+    state,
+    config.dashboardOAuthStateTtlSeconds
+  );
+}
+
+export function dashboardOAuthStateClearCookieHeader(): string {
+  return clearCookieHeader(config.dashboardStateCookieName);
+}
+
+export function verifyDashboardOAuthState(
+  request: FastifyRequest,
+  expectedState: string | undefined
+): boolean {
+  if (!expectedState) {
+    return false;
+  }
+
+  const cookies = parseCookies(request);
+  const storedState = cookies[config.dashboardStateCookieName];
+
+  if (!storedState) {
+    return false;
+  }
+
+  return safeEquals(storedState, expectedState);
+}
+
+export function createDashboardSession(input: {
+  discordUserId: string;
+  username?: string;
+  globalName?: string;
+  roleIds?: string[];
+}): DashboardSession {
+  const createdAt = nowMs();
+  const token = randomToken();
+  const session: DashboardSession = {
+    token,
+    discordUserId: input.discordUserId,
+    username: input.username,
+    globalName: input.globalName,
+    roleIds: input.roleIds ?? [],
+    createdAt,
+    lastActivityAt: createdAt,
+    expiresAt: createdAt + config.dashboardSessionIdleSeconds * 1000
+  };
+
+  dashboardSessions.set(token, session);
+  return session;
+}
+
+export function destroyDashboardSession(request: FastifyRequest): void {
+  const cookies = parseCookies(request);
+  const token = cookies[config.dashboardSessionCookieName];
+
+  if (token) {
+    dashboardSessions.delete(token);
+  }
+}
+
+export function dashboardSessionSetCookieHeader(sessionToken: string): string {
+  return cookieHeader(
+    config.dashboardSessionCookieName,
+    sessionToken,
+    config.dashboardSessionIdleSeconds
+  );
+}
+
+export function dashboardSessionClearCookieHeader(): string {
+  return clearCookieHeader(config.dashboardSessionCookieName);
+}
+
+export function getDashboardSession(
+  request: FastifyRequest,
+  reply?: FastifyReply
+): DashboardSession | null {
+  const cookies = parseCookies(request);
+  const token = cookies[config.dashboardSessionCookieName];
+
+  if (!token) {
+    return null;
+  }
+
+  const session = dashboardSessions.get(token);
+
+  if (!session) {
+    return null;
+  }
+
+  const now = nowMs();
+
+  if (session.expiresAt <= now) {
+    dashboardSessions.delete(token);
+
+    if (reply) {
+      reply.header("Set-Cookie", dashboardSessionClearCookieHeader());
+    }
+
+    return null;
+  }
+
+  session.lastActivityAt = now;
+  session.expiresAt = now + config.dashboardSessionIdleSeconds * 1000;
+
+  if (reply) {
+    reply.header("Set-Cookie", dashboardSessionSetCookieHeader(token));
+  }
+
+  return session;
+}
+
+export function getDashboardSessionStatus() {
+  const now = nowMs();
+  let active = 0;
+
+  for (const [token, session] of dashboardSessions.entries()) {
+    if (session.expiresAt <= now) {
+      dashboardSessions.delete(token);
+      continue;
+    }
+
+    active += 1;
+  }
+
+  return {
+    active,
+    idleTimeoutSeconds: config.dashboardSessionIdleSeconds
+  };
+}
+
+export function isDashboardRequestAuthorized(
+  request: FastifyRequest,
+  reply?: FastifyReply
+): boolean {
   const bearerToken = extractBearerToken(request);
 
   if (tokenMatches(bearerToken, config.dashboardToken)) {
     return true;
   }
 
-  const cookies = parseCookies(request);
-  return verifyDashboardSessionCookie(cookies[config.dashboardSessionCookieName]);
+  return Boolean(getDashboardSession(request, reply));
 }
 
 export async function requireAgentAuth(
@@ -211,7 +305,7 @@ export async function requireDashboardAuth(
   request: FastifyRequest,
   reply: FastifyReply
 ) {
-  if (!isDashboardRequestAuthorized(request)) {
+  if (!isDashboardRequestAuthorized(request, reply)) {
     return reply.code(401).send({
       error: "dashboard_auth_required"
     });
@@ -222,7 +316,7 @@ export async function requireDashboardWebAuth(
   request: FastifyRequest,
   reply: FastifyReply
 ) {
-  if (!isDashboardRequestAuthorized(request)) {
+  if (!isDashboardRequestAuthorized(request, reply)) {
     return reply.redirect("/dashboard/login", 303);
   }
 }
@@ -247,7 +341,7 @@ export async function requireAgentOrDashboardAuth(
 
   if (
     tokenMatches(bearerToken, config.agentToken) ||
-    isDashboardRequestAuthorized(request)
+    isDashboardRequestAuthorized(request, reply)
   ) {
     return;
   }
@@ -265,7 +359,7 @@ export async function requireBotOrDashboardAuth(
 
   if (
     tokenMatches(bearerToken, config.botBridgeToken) ||
-    isDashboardRequestAuthorized(request)
+    isDashboardRequestAuthorized(request, reply)
   ) {
     return;
   }

@@ -76,10 +76,12 @@ function publicBaseUrlFromEnv(): string {
   return `http://${host}:${port}`;
 }
 
+const publicBaseUrl = publicBaseUrlFromEnv();
+
 export const config = {
   host: process.env.JARVIS_BACKEND_HOST?.trim() || "0.0.0.0",
   port: numberFromEnv(process.env.JARVIS_BACKEND_PORT, 8181),
-  publicBaseUrl: publicBaseUrlFromEnv(),
+  publicBaseUrl,
 
   agentToken: process.env.JARVIS_AGENT_TOKEN ?? "",
   botBridgeToken: process.env.JARVIS_BOT_BRIDGE_TOKEN ?? "",
@@ -89,14 +91,35 @@ export const config = {
   dashboardSessionCookieName:
     process.env.JARVIS_DASHBOARD_SESSION_COOKIE_NAME?.trim() ||
     "jarvis_dashboard_session",
+  dashboardStateCookieName:
+    process.env.JARVIS_DASHBOARD_STATE_COOKIE_NAME?.trim() ||
+    "jarvis_dashboard_oauth_state",
   dashboardSessionTtlSeconds: numberFromEnv(
     process.env.JARVIS_DASHBOARD_SESSION_TTL_SECONDS,
-    60 * 60 * 8
+    60 * 30
+  ),
+  dashboardSessionIdleSeconds: numberFromEnv(
+    process.env.JARVIS_DASHBOARD_SESSION_IDLE_SECONDS,
+    60 * 30
+  ),
+  dashboardOAuthStateTtlSeconds: numberFromEnv(
+    process.env.JARVIS_DASHBOARD_OAUTH_STATE_TTL_SECONDS,
+    10 * 60
   ),
   dashboardCookieSecure: booleanFromEnv(
     process.env.JARVIS_DASHBOARD_COOKIE_SECURE,
-    publicBaseUrlFromEnv().startsWith("https://")
+    publicBaseUrl.startsWith("https://")
   ),
+
+  discordOAuthClientId: process.env.JARVIS_DISCORD_OAUTH_CLIENT_ID?.trim() ?? "",
+  discordOAuthClientSecret: process.env.JARVIS_DISCORD_OAUTH_CLIENT_SECRET ?? "",
+  discordOAuthRedirectUri:
+    process.env.JARVIS_DISCORD_OAUTH_REDIRECT_URI?.trim() ||
+    `${publicBaseUrl}/dashboard/auth/discord/callback`,
+  discordGuildId: process.env.JARVIS_DISCORD_GUILD_ID?.trim() ?? "",
+  discordApiBaseUrl:
+    process.env.JARVIS_DISCORD_API_BASE_URL?.trim() ||
+    "https://discord.com/api",
 
   realtimeModel: process.env.JARVIS_REALTIME_MODEL ?? "gpt-4o-realtime-preview",
   realtimeVoice: process.env.JARVIS_REALTIME_VOICE ?? "verse",
@@ -152,7 +175,16 @@ function checkSecret(key: string, value: string, required = true): ConfigCheck {
   };
 }
 
+function hasNoPlaceholderItems(items: string[]): boolean {
+  return (
+    items.length > 0 &&
+    !items.some(item => item.toUpperCase().includes("CHANGE_ME"))
+  );
+}
+
 export function getConfigStatus() {
+  const roleAuthRequired = config.allowedDiscordRoleIds.length > 0;
+
   const checks: ConfigCheck[] = [
     {
       key: "JARVIS_BACKEND_HOST",
@@ -173,30 +205,66 @@ export function getConfigStatus() {
       key: "JARVIS_PUBLIC_BASE_URL",
       configured: Boolean(config.publicBaseUrl),
       required: true,
-      message: `Public Base URL ist konfiguriert.`
+      message: "Public Base URL ist konfiguriert."
     },
     checkSecret("OPENAI_API_KEY", config.openAiApiKey),
     checkSecret("JARVIS_AGENT_TOKEN", config.agentToken),
     checkSecret("JARVIS_BOT_BRIDGE_TOKEN", config.botBridgeToken),
-    checkSecret("JARVIS_DASHBOARD_TOKEN", config.dashboardToken),
+    checkSecret("JARVIS_DASHBOARD_TOKEN", config.dashboardToken, false),
+    {
+      key: "JARVIS_DISCORD_OAUTH_CLIENT_ID",
+      configured: Boolean(config.discordOAuthClientId),
+      required: true,
+      message: config.discordOAuthClientId
+        ? "Discord OAuth Client-ID ist gesetzt."
+        : "Discord OAuth Client-ID fehlt."
+    },
+    checkSecret(
+      "JARVIS_DISCORD_OAUTH_CLIENT_SECRET",
+      config.discordOAuthClientSecret
+    ),
+    {
+      key: "JARVIS_DISCORD_OAUTH_REDIRECT_URI",
+      configured: Boolean(config.discordOAuthRedirectUri),
+      required: true,
+      message: "Discord OAuth Redirect-URI ist gesetzt."
+    },
+    {
+      key: "JARVIS_DISCORD_GUILD_ID",
+      configured: Boolean(config.discordGuildId),
+      required: roleAuthRequired,
+      message: roleAuthRequired
+        ? "Discord Guild-ID ist für Rollenprüfung erforderlich."
+        : "Discord Guild-ID ist optional, solange keine Rollenprüfung aktiv ist."
+    },
     {
       key: "JARVIS_ALLOWED_DISCORD_USER_IDS",
-      configured:
-        config.allowedDiscordUserIds.length > 0 &&
-        !config.allowedDiscordUserIds.some(item =>
-          item.toUpperCase().includes("CHANGE_ME")
-        ),
-      required: true,
+      configured: hasNoPlaceholderItems(config.allowedDiscordUserIds),
+      required: config.allowedDiscordRoleIds.length === 0,
       message:
         config.allowedDiscordUserIds.length > 0
           ? "Discord User-Allowlist ist gesetzt."
           : "Discord User-Allowlist fehlt."
     },
     {
-      key: "JARVIS_DASHBOARD_SESSION_TTL_SECONDS",
-      configured: config.dashboardSessionTtlSeconds > 0,
+      key: "JARVIS_ALLOWED_DISCORD_ROLE_IDS",
+      configured:
+        config.allowedDiscordRoleIds.length === 0 ||
+        hasNoPlaceholderItems(config.allowedDiscordRoleIds),
+      required: false,
+      message:
+        config.allowedDiscordRoleIds.length > 0
+          ? "Discord Rollen-Allowlist ist gesetzt."
+          : "Discord Rollen-Allowlist ist leer; Zugriff läuft über User-ID."
+    },
+    {
+      key: "JARVIS_DASHBOARD_SESSION_IDLE_SECONDS",
+      configured: config.dashboardSessionIdleSeconds === 1800,
       required: true,
-      message: `Dashboard Session TTL ist gesetzt.`
+      message:
+        config.dashboardSessionIdleSeconds === 1800
+          ? "Dashboard Idle-Timeout ist 30 Minuten."
+          : `Dashboard Idle-Timeout ist ${config.dashboardSessionIdleSeconds}s; gewünscht sind 1800s.`
     }
   ];
 
@@ -214,7 +282,8 @@ export function getConfigStatus() {
       host: config.host,
       port: config.port,
       publicBaseUrl: config.publicBaseUrl,
-      dashboardCookieSecure: config.dashboardCookieSecure
+      dashboardCookieSecure: config.dashboardCookieSecure,
+      dashboardSessionIdleSeconds: config.dashboardSessionIdleSeconds
     },
     checks
   };

@@ -1,103 +1,123 @@
-# JARVIS Dashboard Auth & VPS Binding
+# JARVIS Dashboard Discord Auth
 
 ## Ziel
 
-Patch 012 macht zwei Dinge:
+Das Dashboard verwendet Discord OAuth2 für Login und autorisiert danach gegen `.env`-Allowlisten.
 
-1. Das Backend kann auf dem VPS extern erreichbar gebunden werden.
-2. Das Dashboard selbst ist nicht mehr öffentlich lesbar, sondern verlangt Login.
+## Warum Discord OAuth2 nötig ist
 
-## VPS Binding
+`JARVIS_ALLOWED_DISCORD_USER_IDS` und `JARVIS_ALLOWED_DISCORD_ROLE_IDS` sind nur Allowlisten. Sie beweisen nicht, wer im Browser sitzt.
 
-Empfohlene Backend-Konfiguration auf dem VPS:
+Dafür wird Discord OAuth2 genutzt:
 
-```env
-JARVIS_BACKEND_HOST=0.0.0.0
-JARVIS_BACKEND_PORT=8181
-JARVIS_PUBLIC_HOST=46.225.14.84
-JARVIS_PUBLIC_BASE_URL=http://46.225.14.84:8181
-```
+1. Browser geht zu `/dashboard/login`.
+2. Benutzer klickt „Mit Discord einloggen“.
+3. Discord bestätigt die Identität über OAuth2.
+4. Backend liest die Discord User-ID.
+5. Backend prüft User-ID und optional Rollen gegen `.env`.
+6. Backend erzeugt eine lokale Dashboard-Session.
 
-`0.0.0.0` bedeutet: Node/Fastify lauscht auf allen Interfaces. Das ist auf Servern üblich.
-
-Optional kann direkt auf die öffentliche IP gebunden werden:
+## Benötigte `.env`
 
 ```env
-JARVIS_BACKEND_HOST=46.225.14.84
+JARVIS_DISCORD_OAUTH_CLIENT_ID=DEINE_DISCORD_APP_CLIENT_ID
+JARVIS_DISCORD_OAUTH_CLIENT_SECRET=DEIN_DISCORD_APP_CLIENT_SECRET
+JARVIS_DISCORD_OAUTH_REDIRECT_URI=http://46.225.14.84:8181/dashboard/auth/discord/callback
+JARVIS_DISCORD_GUILD_ID=DEINE_GUILD_ID
+
+JARVIS_ALLOWED_DISCORD_USER_IDS=333006296611684352
+JARVIS_ALLOWED_DISCORD_ROLE_IDS=
+
+JARVIS_DASHBOARD_SESSION_IDLE_SECONDS=1800
+JARVIS_DASHBOARD_SESSION_TTL_SECONDS=1800
+JARVIS_DASHBOARD_COOKIE_SECURE=false
 ```
 
-Das funktioniert nur, wenn Windows diese IP tatsächlich als Interface-Adresse führt.
+## Redirect URL in Discord Developer Portal
 
-## Dashboard Login
-
-Dashboard-URL:
+Diese Redirect URL muss in der Discord App eingetragen werden:
 
 ```text
-http://46.225.14.84:8181/dashboard
+http://46.225.14.84:8181/dashboard/auth/discord/callback
 ```
 
-Ohne gültige Session wird auf diese Seite umgeleitet:
+Bei späterem HTTPS-Betrieb entsprechend:
 
 ```text
-/dashboard/login
+https://DEINE_DOMAIN/dashboard/auth/discord/callback
 ```
 
-Login erfolgt mit:
+## Scopes
+
+Standard:
+
+```text
+identify
+```
+
+Wenn `JARVIS_ALLOWED_DISCORD_ROLE_IDS` gesetzt ist, wird zusätzlich benötigt:
+
+```text
+guilds.members.read
+```
+
+Rollenprüfung funktioniert nur mit:
 
 ```env
-JARVIS_DASHBOARD_TOKEN
+JARVIS_DISCORD_GUILD_ID
 ```
 
-Nach erfolgreichem Login setzt das Backend ein HttpOnly-Cookie:
+## Session
+
+Nach erfolgreichem Login erzeugt das Backend einen zufälligen Session-Token.
+
+Der Token wird nur als HttpOnly-Cookie gespeichert:
 
 ```text
 jarvis_dashboard_session
 ```
 
-## API-Schutz
-
-Dashboard-APIs nutzen `requireDashboardAuth`.
-
-Geschützt sind unter anderem:
+Serverseitig wird nur diese Session im Speicher gehalten:
 
 ```text
-/api/dashboard/overview
-/api/dashboard/commands/morning-routine
+discordUserId
+roleIds
+createdAt
+lastActivityAt
+expiresAt
 ```
 
-Der normale Bearer-Token-Zugriff mit `Authorization: Bearer <JARVIS_DASHBOARD_TOKEN>` bleibt für Skripte möglich.
+## 30 Minuten Inaktivität
 
-## Cookie-Sicherheit
+`JARVIS_DASHBOARD_SESSION_IDLE_SECONDS=1800`
 
-Bei HTTP:
+Bei jeder Dashboard-Aktivität wird die Session verlängert. Wenn 30 Minuten keine Aktivität stattfindet:
 
-```env
-JARVIS_DASHBOARD_COOKIE_SECURE=false
-```
+- Session läuft ab.
+- Cookie wird gelöscht, sobald der Browser wieder anfragt.
+- Dashboard leitet auf `/dashboard/login`.
 
-Bei HTTPS später:
+## Sicherheit
 
-```env
-JARVIS_DASHBOARD_COOKIE_SECURE=true
-```
+- Discord Access Tokens werden nicht gespeichert.
+- Dashboard-Session ist ein zufälliger lokaler Token.
+- Session-Cookie ist `HttpOnly`.
+- Cookie ist `SameSite=Strict`.
+- Bei HTTP muss `JARVIS_DASHBOARD_COOKIE_SECURE=false` sein.
+- Bei HTTPS später auf `true` setzen.
 
-## Wichtige Sicherheitsgrenze
+## Wichtiges Restrisiko
 
-HTTP über öffentliche IP schützt das Token nicht vor Netzwerkmitschnitt. Für produktionsnahen Betrieb muss später HTTPS davor:
+HTTP über öffentliche IP ist nicht verschlüsselt. Für produktionsnahen Betrieb muss später HTTPS davor:
 
 - Reverse Proxy
 - TLS-Zertifikat
 - Firewall-Regeln
 
-## Firewall
-
-Auf dem VPS muss Port `8181` eingehend erlaubt sein, falls Dashboard/API extern erreichbar sein sollen.
-
 ## Nicht umgesetzt
 
-- Kein HTTPS
-- Kein Reverse Proxy
-- Keine Benutzerverwaltung
-- Keine Rollen im Dashboard
-- Keine CSRF-Tokens
-- Keine 2FA
+- keine Benutzerverwaltung
+- keine 2FA
+- keine permanente Session-Datenbank
+- keine CSRF-Tokens für POST-Aktionen außer OAuth State
+- keine HTTPS-Konfiguration

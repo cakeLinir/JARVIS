@@ -1,12 +1,18 @@
-import type { FastifyInstance } from "fastify";
-import { config, getConfigStatus } from "../config/config.js";
+import type { FastifyInstance, FastifyReply } from "fastify";
+import { config, getConfigStatus, isUsableSecret } from "../config/config.js";
 import {
-  createDashboardSessionCookie,
+  createDashboardOAuthState,
+  createDashboardSession,
+  dashboardOAuthStateClearCookieHeader,
+  dashboardOAuthStateSetCookieHeader,
   dashboardSessionClearCookieHeader,
   dashboardSessionSetCookieHeader,
-  isDashboardRequestAuthorized,
+  destroyDashboardSession,
+  getDashboardSession,
+  getDashboardSessionStatus,
   requireDashboardAuth,
-  requireDashboardWebAuth
+  requireDashboardWebAuth,
+  verifyDashboardOAuthState
 } from "../security/auth.js";
 import {
   getAgentRuntimeStatus,
@@ -16,6 +22,24 @@ import {
 import { getCommandCounts, getRecentCommands } from "../services/command-store.js";
 import { appendAuditEvent, getRecentAuditEvents } from "../services/audit-log.js";
 import { getNewsSources } from "../services/news.service.js";
+
+type DiscordTokenResponse = {
+  access_token: string;
+  token_type: string;
+  expires_in?: number;
+  scope?: string;
+};
+
+type DiscordUser = {
+  id: string;
+  username?: string;
+  global_name?: string | null;
+};
+
+type DiscordGuildMember = {
+  user?: DiscordUser;
+  roles?: string[];
+};
 
 function numberFromEnv(value: string | undefined, fallback: number): number {
   const parsed = Number(value);
@@ -37,7 +61,124 @@ function escapeHtml(value: string): string {
     .replace(/"/g, "&quot;");
 }
 
+function discordOAuthConfigured(): boolean {
+  return (
+    Boolean(config.discordOAuthClientId) &&
+    isUsableSecret(config.discordOAuthClientSecret) &&
+    Boolean(config.discordOAuthRedirectUri)
+  );
+}
+
+function oauthScopes(): string[] {
+  const scopes = ["identify"];
+
+  if (config.allowedDiscordRoleIds.length > 0) {
+    scopes.push("guilds.members.read");
+  }
+
+  return scopes;
+}
+
+function discordAuthorizeUrl(state: string): string {
+  const url = new URL("https://discord.com/oauth2/authorize");
+  url.searchParams.set("client_id", config.discordOAuthClientId);
+  url.searchParams.set("response_type", "code");
+  url.searchParams.set("redirect_uri", config.discordOAuthRedirectUri);
+  url.searchParams.set("scope", oauthScopes().join(" "));
+  url.searchParams.set("state", state);
+  url.searchParams.set("prompt", "none");
+  return url.toString();
+}
+
+async function exchangeDiscordCode(code: string): Promise<DiscordTokenResponse> {
+  const body = new URLSearchParams();
+  body.set("client_id", config.discordOAuthClientId);
+  body.set("client_secret", config.discordOAuthClientSecret);
+  body.set("grant_type", "authorization_code");
+  body.set("code", code);
+  body.set("redirect_uri", config.discordOAuthRedirectUri);
+
+  const response = await fetch(`${config.discordApiBaseUrl}/oauth2/token`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/x-www-form-urlencoded",
+      Accept: "application/json"
+    },
+    body
+  });
+
+  if (!response.ok) {
+    const raw = await response.text();
+    throw new Error(`Discord OAuth token exchange failed: HTTP ${response.status} ${raw}`);
+  }
+
+  return response.json() as Promise<DiscordTokenResponse>;
+}
+
+async function fetchDiscordUser(accessToken: string): Promise<DiscordUser> {
+  const response = await fetch(`${config.discordApiBaseUrl}/users/@me`, {
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      Accept: "application/json"
+    }
+  });
+
+  if (!response.ok) {
+    const raw = await response.text();
+    throw new Error(`Discord user fetch failed: HTTP ${response.status} ${raw}`);
+  }
+
+  return response.json() as Promise<DiscordUser>;
+}
+
+async function fetchDiscordGuildMember(accessToken: string): Promise<DiscordGuildMember | null> {
+  if (!config.discordGuildId || config.allowedDiscordRoleIds.length === 0) {
+    return null;
+  }
+
+  const response = await fetch(
+    `${config.discordApiBaseUrl}/users/@me/guilds/${config.discordGuildId}/member`,
+    {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        Accept: "application/json"
+      }
+    }
+  );
+
+  if (response.status === 404 || response.status === 403) {
+    return null;
+  }
+
+  if (!response.ok) {
+    const raw = await response.text();
+    throw new Error(`Discord guild member fetch failed: HTTP ${response.status} ${raw}`);
+  }
+
+  return response.json() as Promise<DiscordGuildMember>;
+}
+
+function isAllowedDiscordIdentity(user: DiscordUser, member: DiscordGuildMember | null) {
+  const allowedByUserId = config.allowedDiscordUserIds.includes(user.id);
+  const memberRoleIds = member?.roles ?? [];
+  const allowedByRole =
+    config.allowedDiscordRoleIds.length > 0 &&
+    memberRoleIds.some(roleId => config.allowedDiscordRoleIds.includes(roleId));
+
+  return {
+    allowed: allowedByUserId || allowedByRole,
+    allowedByUserId,
+    allowedByRole,
+    roleIds: memberRoleIds
+  };
+}
+
 function loginHtml(errorMessage = "") {
+  const disabled = discordOAuthConfigured() ? "" : "disabled";
+  const hint = discordOAuthConfigured()
+    ? "Melde dich mit Discord an. Zugriff wird gegen erlaubte User-IDs/Rollen geprüft."
+    : "Discord OAuth ist noch nicht konfiguriert.";
+
   return `<!doctype html>
 <html lang="de">
 <head>
@@ -47,58 +188,27 @@ function loginHtml(errorMessage = "") {
   <style>
     :root { color-scheme: dark; font-family: Segoe UI, system-ui, sans-serif; }
     body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: #0d1117; color: #e6edf3; }
-    main { width: min(460px, calc(100vw - 32px)); border: 1px solid #30363d; border-radius: 16px; padding: 24px; background: #161b22; }
-    input, button { width: 100%; box-sizing: border-box; padding: 12px; border-radius: 8px; border: 1px solid #30363d; background: #0d1117; color: #e6edf3; margin-top: 12px; }
-    button { cursor: pointer; background: #238636; border-color: #238636; font-weight: 700; }
+    main { width: min(520px, calc(100vw - 32px)); border: 1px solid #30363d; border-radius: 16px; padding: 24px; background: #161b22; }
+    a.button, button { display: block; text-align: center; text-decoration: none; width: 100%; box-sizing: border-box; padding: 12px; border-radius: 8px; border: 1px solid #5865f2; background: #5865f2; color: white; margin-top: 16px; font-weight: 700; }
+    a.button.disabled { pointer-events: none; opacity: 0.5; }
     .error { color: #ff7b72; margin-top: 12px; }
     .muted { color: #8b949e; }
+    code { background: #0d1117; border: 1px solid #30363d; border-radius: 6px; padding: 2px 6px; }
   </style>
 </head>
 <body>
   <main>
     <h1>JARVIS Dashboard</h1>
-    <p class="muted">Authentifizierung erforderlich.</p>
-    <input id="token" type="password" autocomplete="current-password" placeholder="Dashboard Token" autofocus />
-    <button onclick="login()">Einloggen</button>
+    <p class="muted">${escapeHtml(hint)}</p>
+    <a class="button ${disabled}" href="/dashboard/auth/discord/start">Mit Discord einloggen</a>
+    <p class="muted">Session-Timeout bei Inaktivität: <code>${config.dashboardSessionIdleSeconds}s</code></p>
     <p id="error" class="error">${escapeHtml(errorMessage)}</p>
   </main>
-<script>
-async function login() {
-  const token = document.getElementById('token').value.trim();
-  const error = document.getElementById('error');
-  error.textContent = '';
-
-  const res = await fetch('/dashboard/login', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
-    credentials: 'same-origin',
-    body: JSON.stringify({ token })
-  });
-
-  if (res.ok) {
-    window.location.href = '/dashboard';
-    return;
-  }
-
-  let message = 'Login fehlgeschlagen.';
-  try {
-    const data = await res.json();
-    message = data.message || data.error || message;
-  } catch {}
-  error.textContent = message;
-}
-
-document.getElementById('token').addEventListener('keydown', event => {
-  if (event.key === 'Enter') {
-    login();
-  }
-});
-</script>
 </body>
 </html>`;
 }
 
-function dashboardHtml() {
+function dashboardHtml(sessionLabel: string) {
   return `<!doctype html>
 <html lang="de">
 <head>
@@ -122,7 +232,8 @@ function dashboardHtml() {
 <body>
   <header>
     <h1>JARVIS Dashboard</h1>
-    <p class="muted">MVP-Verwaltung für Backend, Bot, lokalen Agent, TODOs, Runtime und Realtime-Voice.</p>
+    <p class="muted">Angemeldet als: ${escapeHtml(sessionLabel)}</p>
+    <p class="muted">Session läuft bei Inaktivität nach ${config.dashboardSessionIdleSeconds / 60} Minuten ab.</p>
     <div class="row">
       <button onclick="loadOverview()">Status laden</button>
       <button onclick="startMorning()">Morgenroutine starten</button>
@@ -205,51 +316,100 @@ function buildTodoOverview() {
   };
 }
 
-function isTokenBody(body: unknown): body is { token: string } {
-  return (
-    typeof body === "object" &&
-    body !== null &&
-    "token" in body &&
-    typeof (body as { token: unknown }).token === "string"
-  );
+function redirectWithError(reply: FastifyReply, message: string) {
+  const encoded = encodeURIComponent(message);
+  return reply.redirect(`/dashboard/login?error=${encoded}`, 303);
 }
 
 export async function dashboardRoutes(server: FastifyInstance) {
   server.get("/dashboard/login", async (request, reply) => {
-    if (isDashboardRequestAuthorized(request)) {
+    const session = getDashboardSession(request, reply);
+
+    if (session) {
       return reply.redirect("/dashboard", 303);
     }
 
-    return reply.type("text/html; charset=utf-8").send(loginHtml());
+    const query = request.query as { error?: string } | undefined;
+    return reply.type("text/html; charset=utf-8").send(loginHtml(query?.error ?? ""));
   });
 
-  server.post("/dashboard/login", async (request, reply) => {
-    const body = request.body;
-
-    if (!isTokenBody(body) || body.token !== config.dashboardToken) {
-      request.log.warn("Dashboard login failed");
-      return reply.code(403).send({
-        ok: false,
-        error: "invalid_dashboard_token",
-        message: "Dashboard Token ungültig."
-      });
+  server.get("/dashboard/auth/discord/start", async (_request, reply) => {
+    if (!discordOAuthConfigured()) {
+      return reply.code(500).type("text/html; charset=utf-8").send(
+        loginHtml("Discord OAuth ist nicht vollständig konfiguriert.")
+      );
     }
 
-    const session = createDashboardSessionCookie();
+    if (config.allowedDiscordRoleIds.length > 0 && !config.discordGuildId) {
+      return reply.code(500).type("text/html; charset=utf-8").send(
+        loginHtml("JARVIS_DISCORD_GUILD_ID fehlt für Rollenprüfung.")
+      );
+    }
 
-    reply.header(
-      "Set-Cookie",
-      dashboardSessionSetCookieHeader(session)
-    );
-
-    request.log.info("Dashboard login successful");
-
-    return {
-      ok: true
-    };
+    const state = createDashboardOAuthState();
+    reply.header("Set-Cookie", dashboardOAuthStateSetCookieHeader(state));
+    return reply.redirect(discordAuthorizeUrl(state), 303);
   });
 
-  server.post("/dashboard/logout", async (_request, reply) => {
+  server.get("/dashboard/auth/discord/callback", async (request, reply) => {
+    const query = request.query as { code?: string; state?: string; error?: string } | undefined;
+
+    reply.header("Set-Cookie", dashboardOAuthStateClearCookieHeader());
+
+    if (query?.error) {
+      return redirectWithError(reply, `Discord Login abgebrochen: ${query.error}`);
+    }
+
+    if (!query?.code || !verifyDashboardOAuthState(request, query.state)) {
+      return redirectWithError(reply, "Discord OAuth State ungültig oder abgelaufen.");
+    }
+
+    try {
+      const token = await exchangeDiscordCode(query.code);
+      const user = await fetchDiscordUser(token.access_token);
+      const member = await fetchDiscordGuildMember(token.access_token);
+      const authorization = isAllowedDiscordIdentity(user, member);
+
+      if (!authorization.allowed) {
+        request.log.warn(
+          {
+            discordUserId: user.id,
+            allowedByUserId: authorization.allowedByUserId,
+            allowedByRole: authorization.allowedByRole
+          },
+          "Dashboard Discord login denied"
+        );
+
+        return redirectWithError(reply, "Discord Account ist nicht für JARVIS Dashboard freigegeben.");
+      }
+
+      const session = createDashboardSession({
+        discordUserId: user.id,
+        username: user.username,
+        globalName: user.global_name ?? undefined,
+        roleIds: authorization.roleIds
+      });
+
+      reply.header("Set-Cookie", dashboardSessionSetCookieHeader(session.token));
+
+      request.log.info(
+        {
+          discordUserId: user.id,
+          allowedByUserId: authorization.allowedByUserId,
+          allowedByRole: authorization.allowedByRole
+        },
+        "Dashboard Discord login successful"
+      );
+
+      return reply.redirect("/dashboard", 303);
+    } catch (error) {
+      request.log.error({ error }, "Dashboard Discord OAuth failed");
+      return redirectWithError(reply, "Discord Login fehlgeschlagen. Prüfe Backend-Logs und OAuth-Konfiguration.");
+    }
+  });
+
+  server.post("/dashboard/logout", async (request, reply) => {
+    destroyDashboardSession(request);
     reply.header("Set-Cookie", dashboardSessionClearCookieHeader());
 
     return {
@@ -262,8 +422,13 @@ export async function dashboardRoutes(server: FastifyInstance) {
     {
       preHandler: requireDashboardWebAuth
     },
-    async (_request, reply) => {
-      return reply.type("text/html; charset=utf-8").send(dashboardHtml());
+    async (request, reply) => {
+      const session = getDashboardSession(request, reply);
+      const label = session
+        ? `${session.globalName || session.username || "Discord User"} (${session.discordUserId})`
+        : "Discord Session";
+
+      return reply.type("text/html; charset=utf-8").send(dashboardHtml(label));
     }
   );
 
@@ -276,6 +441,7 @@ export async function dashboardRoutes(server: FastifyInstance) {
       const configuration = getConfigStatus();
       const todo = buildTodoOverview();
       const runtime = getAgentRuntimeStatus(runtimeOptions());
+      const sessionStatus = getDashboardSessionStatus();
 
       return {
         ok: true,
@@ -284,6 +450,7 @@ export async function dashboardRoutes(server: FastifyInstance) {
           now: new Date().toISOString(),
           runtimeState: runtime.state,
           publicBaseUrl: config.publicBaseUrl,
+          dashboardSession: sessionStatus,
           realtimeModel: config.realtimeModel,
           realtimeVoice: config.realtimeVoice,
           newsSources: getNewsSources().map(source => source.name),
@@ -294,6 +461,7 @@ export async function dashboardRoutes(server: FastifyInstance) {
         },
         runtime,
         configuration,
+        dashboardSession: sessionStatus,
         todo,
         agentStatus: getAgentStatus(),
         morningLog: getMorningLog(),
@@ -319,15 +487,19 @@ export async function dashboardRoutes(server: FastifyInstance) {
         });
       }
 
+      const session = getDashboardSession(request, reply);
+      const actorId = session?.discordUserId ?? "dashboard";
+
       const { addCommand, createCommandId, createCorrelationId } = await import("../services/command-store.js");
       const command = addCommand({
         id: createCommandId(),
         correlationId: createCorrelationId(),
         type: "morning_routine",
         status: "pending",
-        requestedBy: "dashboard",
+        requestedBy: `dashboard:${actorId}`,
         source: "dashboard",
-        discordRoleIds: [],
+        discordUserId: session?.discordUserId,
+        discordRoleIds: session?.roleIds ?? [],
         payload: {
           source: "dashboard"
         },
@@ -342,7 +514,7 @@ export async function dashboardRoutes(server: FastifyInstance) {
         correlationId: command.correlationId,
         actor: {
           type: "dashboard",
-          id: "dashboard"
+          id: actorId
         },
         message: "Dashboard hat Morning-Routine-Command erstellt.",
         details: {
