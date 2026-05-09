@@ -35,18 +35,19 @@ if (Test-Path $pidFile) {
     $pidValue = (Get-Content -LiteralPath $pidFile -ErrorAction SilentlyContinue | Select-Object -First 1)
 
     if ($pidValue -and ($pidValue -as [int])) {
-        $pid = [int]$pidValue
-        $process = Get-Process -Id $pid -ErrorAction SilentlyContinue
+        # Nicht $pid verwenden: $PID ist eine schreibgeschützte PowerShell-Automatikvariable.
+        $backendPid = [int]$pidValue
+        $backendProcess = Get-Process -Id $backendPid -ErrorAction SilentlyContinue
 
-        if ($process) {
-            Write-Info "Stoppe Backend PID=$pid..."
-            Stop-Process -Id $pid -Force:$Force -ErrorAction Stop
+        if ($backendProcess) {
+            Write-Info "Stoppe Backend PID=$backendPid..."
+            Stop-Process -Id $backendPid -Force:$Force -ErrorAction Stop
             Start-Sleep -Seconds 1
             $stopped = $true
-            Write-Ok "Backend-Prozess gestoppt. PID=$pid"
+            Write-Ok "Backend-Prozess gestoppt. PID=$backendPid"
         }
         else {
-            Write-Warn "PID-Datei vorhanden, aber Prozess läuft nicht: PID=$pid"
+            Write-Warn "PID-Datei vorhanden, aber Prozess läuft nicht: PID=$backendPid"
         }
     }
     else {
