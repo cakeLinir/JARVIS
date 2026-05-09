@@ -2,33 +2,6 @@ import dotenv from "dotenv";
 
 dotenv.config();
 
-export type ConfigSeverity = "ok" | "warning" | "error";
-
-export type ConfigCheck = {
-  key: string;
-  label: string;
-  ok: boolean;
-  severity: ConfigSeverity;
-  required: boolean;
-  sensitive: boolean;
-  message: string;
-};
-
-export type ConfigStatus = {
-  ok: boolean;
-  generatedAt: string;
-  backend: {
-    host: string;
-    port: number;
-  };
-  summary: {
-    ok: number;
-    warnings: number;
-    errors: number;
-  };
-  checks: ConfigCheck[];
-};
-
 function splitCsv(value: string | undefined): string[] {
   if (!value) {
     return [];
@@ -45,89 +18,85 @@ function numberFromEnv(value: string | undefined, fallback: number): number {
   return Number.isFinite(parsed) ? parsed : fallback;
 }
 
-function normalized(value: string | undefined): string {
-  return (value ?? "").trim();
-}
+function booleanFromEnv(value: string | undefined, fallback: boolean): boolean {
+  if (!value) {
+    return fallback;
+  }
 
-export function isPlaceholderValue(value: string | undefined): boolean {
-  const item = normalized(value);
+  const normalized = value.trim().toLowerCase();
 
-  if (!item) {
+  if (["1", "true", "yes", "y", "on"].includes(normalized)) {
+    return true;
+  }
+
+  if (["0", "false", "no", "n", "off"].includes(normalized)) {
     return false;
   }
 
-  const upper = item.toUpperCase();
-
-  return (
-    upper.includes("CHANGE_ME") ||
-    upper.includes("NUR_LOKAL") ||
-    upper.includes("DEIN_") ||
-    upper.includes("YOUR_") ||
-    upper === "TOKEN" ||
-    upper === "SECRET" ||
-    upper === "API_KEY"
-  );
+  return fallback;
 }
 
-export function isConfiguredSecret(value: string | undefined): boolean {
-  const item = normalized(value);
-
-  if (!item) {
+export function isUsableSecret(value: string | undefined): boolean {
+  if (!value) {
     return false;
   }
 
-  return !isPlaceholderValue(item);
+  const normalized = value.trim();
+
+  if (!normalized) {
+    return false;
+  }
+
+  const upper = normalized.toUpperCase();
+  const invalidMarkers = [
+    "CHANGE_ME",
+    "PLACEHOLDER",
+    "EXAMPLE",
+    "DEIN_",
+    "YOUR_",
+    "TOKEN_HERE"
+  ];
+
+  if (invalidMarkers.some(marker => upper.includes(marker))) {
+    return false;
+  }
+
+  return normalized.length >= 16;
 }
 
-function hasConfiguredListValue(values: string[]): boolean {
-  return values.some(value => isConfiguredSecret(value));
-}
+function publicBaseUrlFromEnv(): string {
+  const explicit = process.env.JARVIS_PUBLIC_BASE_URL?.trim();
 
-function secretCheck(
-  key: string,
-  label: string,
-  value: string | undefined,
-  required: boolean,
-  missingMessage: string
-): ConfigCheck {
-  const ok = isConfiguredSecret(value);
+  if (explicit) {
+    return explicit.replace(/\/+$/, "");
+  }
 
-  return {
-    key,
-    label,
-    ok,
-    required,
-    sensitive: true,
-    severity: ok ? "ok" : required ? "error" : "warning",
-    message: ok ? "Konfiguriert." : missingMessage
-  };
-}
-
-function booleanCheck(
-  key: string,
-  label: string,
-  ok: boolean,
-  required: boolean,
-  missingMessage: string
-): ConfigCheck {
-  return {
-    key,
-    label,
-    ok,
-    required,
-    sensitive: false,
-    severity: ok ? "ok" : required ? "error" : "warning",
-    message: ok ? "Konfiguriert." : missingMessage
-  };
+  const host = process.env.JARVIS_PUBLIC_HOST?.trim() || "46.225.14.84";
+  const port = numberFromEnv(process.env.JARVIS_BACKEND_PORT, 8181);
+  return `http://${host}:${port}`;
 }
 
 export const config = {
-  host: process.env.JARVIS_BACKEND_HOST ?? "0.0.0.0",
+  host: process.env.JARVIS_BACKEND_HOST?.trim() || "0.0.0.0",
   port: numberFromEnv(process.env.JARVIS_BACKEND_PORT, 8181),
+  publicBaseUrl: publicBaseUrlFromEnv(),
+
   agentToken: process.env.JARVIS_AGENT_TOKEN ?? "",
   botBridgeToken: process.env.JARVIS_BOT_BRIDGE_TOKEN ?? "",
   dashboardToken: process.env.JARVIS_DASHBOARD_TOKEN ?? "",
   openAiApiKey: process.env.OPENAI_API_KEY ?? "",
+
+  dashboardSessionCookieName:
+    process.env.JARVIS_DASHBOARD_SESSION_COOKIE_NAME?.trim() ||
+    "jarvis_dashboard_session",
+  dashboardSessionTtlSeconds: numberFromEnv(
+    process.env.JARVIS_DASHBOARD_SESSION_TTL_SECONDS,
+    60 * 60 * 8
+  ),
+  dashboardCookieSecure: booleanFromEnv(
+    process.env.JARVIS_DASHBOARD_COOKIE_SECURE,
+    publicBaseUrlFromEnv().startsWith("https://")
+  ),
 
   realtimeModel: process.env.JARVIS_REALTIME_MODEL ?? "gpt-4o-realtime-preview",
   realtimeVoice: process.env.JARVIS_REALTIME_VOICE ?? "verse",
@@ -163,85 +132,122 @@ export const config = {
   newsMaxItems: numberFromEnv(process.env.JARVIS_NEWS_MAX_ITEMS, 12)
 };
 
-export function getConfigChecks(): ConfigCheck[] {
-  return [
-    booleanCheck(
-      "backend.host",
-      "Backend Host",
-      Boolean(normalized(config.host)),
-      true,
-      "JARVIS_BACKEND_HOST fehlt."
-    ),
-    booleanCheck(
-      "backend.port",
-      "Backend Port",
-      Number.isInteger(config.port) && config.port > 0 && config.port <= 65535,
-      true,
-      "JARVIS_BACKEND_PORT ist ungültig."
-    ),
-    secretCheck(
-      "secrets.agentToken",
-      "Agent Token",
-      config.agentToken,
-      true,
-      "JARVIS_AGENT_TOKEN fehlt oder enthält noch einen Platzhalter."
-    ),
-    secretCheck(
-      "secrets.botBridgeToken",
-      "Bot Bridge Token",
-      config.botBridgeToken,
-      true,
-      "JARVIS_BOT_BRIDGE_TOKEN fehlt oder enthält noch einen Platzhalter."
-    ),
-    secretCheck(
-      "secrets.dashboardToken",
-      "Dashboard Token",
-      config.dashboardToken,
-      true,
-      "JARVIS_DASHBOARD_TOKEN fehlt oder enthält noch einen Platzhalter."
-    ),
-    secretCheck(
-      "secrets.openAiApiKey",
-      "OpenAI API Key",
-      config.openAiApiKey,
-      false,
-      "OPENAI_API_KEY fehlt. OpenAI-Chat und Realtime-Secret funktionieren dann nicht."
-    ),
-    booleanCheck(
-      "discord.allowedActors",
-      "Discord erlaubte User/Rollen",
-      hasConfiguredListValue(config.allowedDiscordUserIds) ||
-        hasConfiguredListValue(config.allowedDiscordRoleIds),
-      false,
-      "Keine erlaubte Discord-User-ID oder Rollen-ID konfiguriert. Discord-Commands für lokale Aktionen werden abgelehnt."
-    )
-  ];
-}
+type ConfigCheck = {
+  key: string;
+  configured: boolean;
+  required: boolean;
+  message: string;
+};
 
-export function getConfigStatus(): ConfigStatus {
-  const checks = getConfigChecks();
-  const errors = checks.filter(item => !item.ok && item.severity === "error").length;
-  const warnings = checks.filter(item => !item.ok && item.severity === "warning").length;
-  const ok = checks.filter(item => item.ok).length;
+function checkSecret(key: string, value: string, required = true): ConfigCheck {
+  const configured = isUsableSecret(value);
 
   return {
-    ok: errors === 0,
-    generatedAt: new Date().toISOString(),
-    backend: {
-      host: config.host,
-      port: config.port
+    key,
+    configured,
+    required,
+    message: configured
+      ? `${key} ist gesetzt.`
+      : `${key} fehlt oder ist noch ein Platzhalter.`
+  };
+}
+
+export function getConfigStatus() {
+  const checks: ConfigCheck[] = [
+    {
+      key: "JARVIS_BACKEND_HOST",
+      configured: Boolean(config.host),
+      required: true,
+      message: `Backend bindet auf ${config.host}.`
     },
+    {
+      key: "JARVIS_BACKEND_PORT",
+      configured: config.port === 8181,
+      required: true,
+      message:
+        config.port === 8181
+          ? "Backend-Port ist projektkonform 8181."
+          : `Backend-Port ist ${config.port}; Projektstandard ist 8181.`
+    },
+    {
+      key: "JARVIS_PUBLIC_BASE_URL",
+      configured: Boolean(config.publicBaseUrl),
+      required: true,
+      message: `Public Base URL ist konfiguriert.`
+    },
+    checkSecret("OPENAI_API_KEY", config.openAiApiKey),
+    checkSecret("JARVIS_AGENT_TOKEN", config.agentToken),
+    checkSecret("JARVIS_BOT_BRIDGE_TOKEN", config.botBridgeToken),
+    checkSecret("JARVIS_DASHBOARD_TOKEN", config.dashboardToken),
+    {
+      key: "JARVIS_ALLOWED_DISCORD_USER_IDS",
+      configured:
+        config.allowedDiscordUserIds.length > 0 &&
+        !config.allowedDiscordUserIds.some(item =>
+          item.toUpperCase().includes("CHANGE_ME")
+        ),
+      required: true,
+      message:
+        config.allowedDiscordUserIds.length > 0
+          ? "Discord User-Allowlist ist gesetzt."
+          : "Discord User-Allowlist fehlt."
+    },
+    {
+      key: "JARVIS_DASHBOARD_SESSION_TTL_SECONDS",
+      configured: config.dashboardSessionTtlSeconds > 0,
+      required: true,
+      message: `Dashboard Session TTL ist gesetzt.`
+    }
+  ];
+
+  const missingRequired = checks.filter(
+    item => item.required && !item.configured
+  );
+
+  return {
+    ok: missingRequired.length === 0,
     summary: {
-      ok,
-      warnings,
-      errors
+      total: checks.length,
+      missingRequired: missingRequired.length
+    },
+    public: {
+      host: config.host,
+      port: config.port,
+      publicBaseUrl: config.publicBaseUrl,
+      dashboardCookieSecure: config.dashboardCookieSecure
     },
     checks
   };
 }
 
-export function getStartupConfigWarnings(): string[] {
-  return getConfigChecks()
-    .filter(item => !item.ok)
-    .map(item => `${item.key}: ${item.message}`);
+export function logConfigWarnings(log: {
+  warn: (value: unknown, message?: string) => void;
+  info: (value: unknown, message?: string) => void;
+}) {
+  const status = getConfigStatus();
+
+  if (status.ok) {
+    log.info(
+      {
+        host: config.host,
+        port: config.port,
+        publicBaseUrl: config.publicBaseUrl
+      },
+      "JARVIS configuration looks complete"
+    );
+    return;
+  }
+
+  log.warn(
+    {
+      missingRequired: status.summary.missingRequired,
+      checks: status.checks
+        .filter(item => item.required && !item.configured)
+        .map(item => ({
+          key: item.key,
+          message: item.message
+        }))
+    },
+    "JARVIS configuration is incomplete"
+  );
 }

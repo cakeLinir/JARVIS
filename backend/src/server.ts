@@ -2,7 +2,7 @@ import Fastify from "fastify";
 import cors from "@fastify/cors";
 import websocket from "@fastify/websocket";
 
-import { config, getStartupConfigWarnings } from "./config/config.js";
+import { config, logConfigWarnings } from "./config/config.js";
 import { loadCommands } from "./services/command-store.js";
 
 import { healthRoutes } from "./routes/health.routes.js";
@@ -18,6 +18,8 @@ loadCommands();
 const server = Fastify({
   logger: true
 });
+
+logConfigWarnings(server.log);
 
 await server.register(cors, {
   origin: false
@@ -41,12 +43,13 @@ async function start() {
     });
 
     server.log.info(
-      `JARVIS backend running on ${config.host}:${config.port}`
+      {
+        host: config.host,
+        port: config.port,
+        publicBaseUrl: config.publicBaseUrl
+      },
+      "JARVIS backend running"
     );
-
-    for (const warning of getStartupConfigWarnings()) {
-      server.log.warn({ warning }, "JARVIS configuration warning");
-    }
   } catch (error) {
     server.log.error(error);
     process.exit(1);
