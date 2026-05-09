@@ -1,5 +1,5 @@
 import type { FastifyRequest, FastifyReply } from "fastify";
-import { randomBytes, timingSafeEqual } from "node:crypto";
+import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { config, isUsableSecret } from "../config/config.js";
 
 export type DashboardSession = {
@@ -13,7 +13,17 @@ export type DashboardSession = {
   expiresAt: number;
 };
 
-const dashboardSessions = new Map<string, DashboardSession>();
+type DashboardSessionPayload = {
+  type: "dashboard";
+  discordUserId: string;
+  username?: string;
+  globalName?: string;
+  roleIds: string[];
+  createdAt: number;
+  lastActivityAt: number;
+  expiresAt: number;
+  nonce: string;
+};
 
 function nowMs(): number {
   return Date.now();
@@ -21,6 +31,14 @@ function nowMs(): number {
 
 function randomToken(): string {
   return randomBytes(32).toString("base64url");
+}
+
+function base64UrlEncode(value: string): string {
+  return Buffer.from(value, "utf-8").toString("base64url");
+}
+
+function base64UrlDecode(value: string): string {
+  return Buffer.from(value, "base64url").toString("utf-8");
 }
 
 function extractBearerToken(request: FastifyRequest): string | null {
@@ -106,7 +124,7 @@ function cookieHeader(
   name: string,
   value: string,
   maxAgeSeconds: number,
-  sameSite: "Strict" | "Lax" = "Strict"
+  sameSite: "Strict" | "Lax" = "Lax"
 ): string {
   const parts = [
     `${name}=${encodeURIComponent(value)}`,
@@ -124,13 +142,65 @@ function cookieHeader(
 }
 
 function clearCookieHeader(name: string): string {
-  return [
+  const parts = [
     `${name}=`,
     "HttpOnly",
     "SameSite=Lax",
     "Path=/",
     "Max-Age=0"
-  ].join("; ");
+  ];
+
+  if (config.dashboardCookieSecure) {
+    parts.push("Secure");
+  }
+
+  return parts.join("; ");
+}
+
+function signPayload(encodedPayload: string): string {
+  return createHmac("sha256", config.dashboardToken)
+    .update(encodedPayload)
+    .digest("base64url");
+}
+
+function createSignedSessionToken(payload: DashboardSessionPayload): string {
+  const encodedPayload = base64UrlEncode(JSON.stringify(payload));
+  const signature = signPayload(encodedPayload);
+  return `${encodedPayload}.${signature}`;
+}
+
+function verifySignedSessionToken(token: string): DashboardSessionPayload | null {
+  if (!isUsableSecret(config.dashboardToken)) {
+    return null;
+  }
+
+  const [encodedPayload, signature] = token.split(".");
+
+  if (!encodedPayload || !signature) {
+    return null;
+  }
+
+  const expectedSignature = signPayload(encodedPayload);
+
+  if (!safeEquals(signature, expectedSignature)) {
+    return null;
+  }
+
+  try {
+    const payload = JSON.parse(base64UrlDecode(encodedPayload)) as DashboardSessionPayload;
+
+    if (payload.type !== "dashboard") {
+      return null;
+    }
+
+    if (!payload.discordUserId || !payload.expiresAt || !payload.createdAt) {
+      return null;
+    }
+
+    return payload;
+  } catch {
+    return null;
+  }
 }
 
 export function createDashboardOAuthState(): string {
@@ -175,29 +245,35 @@ export function createDashboardSession(input: {
   roleIds?: string[];
 }): DashboardSession {
   const createdAt = nowMs();
-  const token = randomToken();
-  const session: DashboardSession = {
-    token,
+  const expiresAt = createdAt + config.dashboardSessionIdleSeconds * 1000;
+  const payload: DashboardSessionPayload = {
+    type: "dashboard",
     discordUserId: input.discordUserId,
     username: input.username,
     globalName: input.globalName,
     roleIds: input.roleIds ?? [],
     createdAt,
     lastActivityAt: createdAt,
-    expiresAt: createdAt + config.dashboardSessionIdleSeconds * 1000
+    expiresAt,
+    nonce: randomToken()
   };
 
-  dashboardSessions.set(token, session);
-  return session;
+  const token = createSignedSessionToken(payload);
+
+  return {
+    token,
+    discordUserId: payload.discordUserId,
+    username: payload.username,
+    globalName: payload.globalName,
+    roleIds: payload.roleIds,
+    createdAt: payload.createdAt,
+    lastActivityAt: payload.lastActivityAt,
+    expiresAt: payload.expiresAt
+  };
 }
 
-export function destroyDashboardSession(request: FastifyRequest): void {
-  const cookies = parseCookies(request);
-  const token = cookies[config.dashboardSessionCookieName];
-
-  if (token) {
-    dashboardSessions.delete(token);
-  }
+export function destroyDashboardSession(_request: FastifyRequest): void {
+  // Signed-cookie sessions are stateless. Logout clears the browser cookie.
 }
 
 export function dashboardSessionSetCookieHeader(sessionToken: string): string {
@@ -205,7 +281,7 @@ export function dashboardSessionSetCookieHeader(sessionToken: string): string {
     config.dashboardSessionCookieName,
     sessionToken,
     config.dashboardSessionIdleSeconds,
-    "Strict"
+    "Lax"
   );
 }
 
@@ -221,19 +297,24 @@ export function getDashboardSession(
   const token = cookies[config.dashboardSessionCookieName];
 
   if (!token) {
+    request.log.debug("Dashboard session cookie missing");
     return null;
   }
 
-  const session = dashboardSessions.get(token);
+  const payload = verifySignedSessionToken(token);
 
-  if (!session) {
+  if (!payload) {
+    request.log.warn("Dashboard session cookie invalid");
+    if (reply) {
+      reply.header("Set-Cookie", dashboardSessionClearCookieHeader());
+    }
     return null;
   }
 
   const now = nowMs();
 
-  if (session.expiresAt <= now) {
-    dashboardSessions.delete(token);
+  if (payload.expiresAt <= now) {
+    request.log.info({ discordUserId: payload.discordUserId }, "Dashboard session expired");
 
     if (reply) {
       reply.header("Set-Cookie", dashboardSessionClearCookieHeader());
@@ -242,31 +323,36 @@ export function getDashboardSession(
     return null;
   }
 
-  session.lastActivityAt = now;
-  session.expiresAt = now + config.dashboardSessionIdleSeconds * 1000;
+  const refreshedPayload: DashboardSessionPayload = {
+    ...payload,
+    lastActivityAt: now,
+    expiresAt: now + config.dashboardSessionIdleSeconds * 1000
+  };
+  const refreshedToken = createSignedSessionToken(refreshedPayload);
 
   if (reply) {
-    reply.header("Set-Cookie", dashboardSessionSetCookieHeader(token));
-  }
-
-  return session;
-}
-
-export function getDashboardSessionStatus() {
-  const now = nowMs();
-  let active = 0;
-
-  for (const [token, session] of dashboardSessions.entries()) {
-    if (session.expiresAt <= now) {
-      dashboardSessions.delete(token);
-      continue;
-    }
-
-    active += 1;
+    reply.header(
+      "Set-Cookie",
+      dashboardSessionSetCookieHeader(refreshedToken)
+    );
   }
 
   return {
-    active,
+    token: refreshedToken,
+    discordUserId: refreshedPayload.discordUserId,
+    username: refreshedPayload.username,
+    globalName: refreshedPayload.globalName,
+    roleIds: refreshedPayload.roleIds,
+    createdAt: refreshedPayload.createdAt,
+    lastActivityAt: refreshedPayload.lastActivityAt,
+    expiresAt: refreshedPayload.expiresAt
+  };
+}
+
+export function getDashboardSessionStatus() {
+  return {
+    mode: "signed-cookie",
+    active: null,
     idleTimeoutSeconds: config.dashboardSessionIdleSeconds
   };
 }
