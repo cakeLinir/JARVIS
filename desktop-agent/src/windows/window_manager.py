@@ -1,3 +1,4 @@
+# window_manager.py - Funktionen zur Verwaltung von Fenstern auf Windows, einschließlich Auflisten, Finden, Positionieren und Minimieren von Fenstern basierend auf Titel- und Prozess-Hinweisen. Wird hauptsächlich für die Morgenroutine verwendet, um die Arbeitsumgebung zu organisieren.
 import ctypes
 import time
 from dataclasses import dataclass

@@ -9,13 +9,16 @@ import { evaluateCommandPolicy } from "../security/policy.js";
 import {
   addCommand,
   createCommandId,
+  createCorrelationId,
   findCommandById,
   getCommandStorePath,
   getNextPendingCommand,
   getRecentCommands,
   updateCommand,
+  type CommandSource,
   type JarvisCommand
 } from "../services/command-store.js";
+import { appendAuditEvent } from "../services/audit-log.js";
 
 const AllowedCommandTypes = z.enum([
   "morning_routine",
@@ -24,9 +27,19 @@ const AllowedCommandTypes = z.enum([
   "system_stop"
 ]);
 
+const AllowedCommandSources = z.enum([
+  "discord",
+  "dashboard",
+  "agent",
+  "backend",
+  "local",
+  "unknown"
+]);
+
 const CreateCommandSchema = z.object({
   type: AllowedCommandTypes,
   requestedBy: z.string().min(1).default("unknown"),
+  source: AllowedCommandSources.optional(),
   discordUserId: z.string().optional(),
   discordRoleIds: z.array(z.string()).default([]),
   payload: z.record(z.unknown()).default({})
@@ -35,8 +48,35 @@ const CreateCommandSchema = z.object({
 const CompleteCommandSchema = z.object({
   status: z.enum(["completed", "failed", "rejected"]),
   result: z.string().optional(),
+  errorCode: z.string().optional(),
   details: z.unknown().optional()
 });
+
+function resolveCommandSource(input: z.infer<typeof CreateCommandSchema>): CommandSource {
+  if (input.source) {
+    return input.source;
+  }
+
+  const sourceFromPayload = input.payload.source;
+
+  if (typeof sourceFromPayload === "string") {
+    const parsed = AllowedCommandSources.safeParse(sourceFromPayload);
+
+    if (parsed.success) {
+      return parsed.data;
+    }
+  }
+
+  if (input.discordUserId) {
+    return "discord";
+  }
+
+  if (input.requestedBy === "dashboard") {
+    return "dashboard";
+  }
+
+  return "unknown";
+}
 
 export async function commandRoutes(server: FastifyInstance) {
   server.post(
@@ -60,10 +100,14 @@ export async function commandRoutes(server: FastifyInstance) {
         discordRoleIds: parsed.data.discordRoleIds
       });
 
+      const commandSource = resolveCommandSource(parsed.data);
+
       const baseCommand: JarvisCommand = {
         id: createCommandId(),
+        correlationId: createCorrelationId(),
         type: parsed.data.type,
         status: policy.allowed ? "pending" : "rejected",
+        source: commandSource,
         requestedBy: parsed.data.requestedBy,
         discordUserId: parsed.data.discordUserId,
         discordRoleIds: parsed.data.discordRoleIds,
@@ -72,12 +116,34 @@ export async function commandRoutes(server: FastifyInstance) {
       };
 
       if (!policy.allowed) {
+        baseCommand.errorCode = "command_rejected_by_policy";
         baseCommand.completedAt = new Date().toISOString();
         baseCommand.rejectionReason = policy.reason;
         baseCommand.result = policy.reason;
       }
 
       const command = addCommand(baseCommand);
+
+      appendAuditEvent({
+        component: "backend",
+        action: "command.create",
+        result: policy.allowed ? "accepted" : "rejected",
+        commandId: command.id,
+        correlationId: command.correlationId,
+        actor: {
+          type: "bot",
+          id: parsed.data.discordUserId ?? parsed.data.requestedBy
+        },
+        errorCode: policy.allowed ? undefined : "command_rejected_by_policy",
+        message: policy.allowed
+          ? `Command akzeptiert: ${command.type}`
+          : policy.reason,
+        details: {
+          type: command.type,
+          source: command.source,
+          requestedBy: command.requestedBy
+        }
+      });
 
       request.log.info({ command }, "Command stored");
 
@@ -115,9 +181,27 @@ export async function commandRoutes(server: FastifyInstance) {
         };
       }
 
+      if (!command.correlationId) {
+        command.correlationId = createCorrelationId();
+      }
+
       command.status = "claimed";
       command.claimedAt = new Date().toISOString();
       command.claimedBy = agentName;
+      command.attempts = (command.attempts ?? 0) + 1;
+
+      appendAuditEvent({
+        component: "backend",
+        action: "command.claim",
+        result: "claimed",
+        commandId: command.id,
+        correlationId: command.correlationId,
+        actor: {
+          type: "agent",
+          id: agentName
+        },
+        message: `Command von Agent geclaimt: ${agentName}`
+      });
 
       updateCommand(command);
 
@@ -157,11 +241,27 @@ export async function commandRoutes(server: FastifyInstance) {
       command.status = parsed.data.status;
       command.completedAt = new Date().toISOString();
       command.result = parsed.data.result;
+      command.errorCode = parsed.data.errorCode;
       command.details = parsed.data.details;
 
       updateCommand(command);
 
       request.log.info({ command }, "Command completed");
+
+      appendAuditEvent({
+        component: "backend",
+        action: "command.complete",
+        result: parsed.data.status,
+        commandId: command.id,
+        correlationId: command.correlationId,
+        actor: {
+          type: "agent",
+          id: command.claimedBy
+        },
+        errorCode: parsed.data.errorCode,
+        message: parsed.data.result,
+        details: parsed.data.details
+      });
 
       return {
         ok: true,

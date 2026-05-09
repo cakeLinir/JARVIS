@@ -1,34 +1,61 @@
 # JARVIS MVP
 
-## Phase 1: stabiler Text-/Command-MVP
+## Ziel
 
-Akzeptanzkriterien:
+Beim Start des lokalen Windows-PCs soll der JARVIS-Agent automatisch starten und lokale Aufgaben sicher ausführen können. Commands kommen vom Dashboard, Discord-Bot oder später vom Voice-Modul.
 
-- Backend baut ohne TypeScript-Fehler.
-- Python-Agent kompiliert syntaktisch.
-- `/api/health` funktioniert.
-- `/dashboard` ist erreichbar.
-- Dashboard-Overview ist per Token geschützt.
-- Command-Queue hängt nicht dauerhaft bei `claimed`, sondern gibt alte Claims nach Timeout frei.
-- Dev-News-Route ruft RSS/Atom-Quellen ab und gibt Titel, Kurzfassung, Quelle, Datum und Link zurück.
-- Lokaler Agent kann Morning-Routine über Textmodus, Backend-Command oder lokale API starten.
+## MVP-Ablauf
 
-## Phase 2: Voice-MVP
+1. Backend läuft auf dem VPS oder lokal auf Port `8181`.
+2. Lokaler Agent startet beim Windows-Login.
+3. Agent sendet Status an das Backend.
+4. Dashboard zeigt Agent-Status und letzte Commands.
+5. Discord-Bot kann JARVIS-Commands erzeugen.
+6. Agent pollt Commands vom Backend.
+7. Agent führt nur lokal erlaubte Aktionen aus.
+8. Agent meldet Erfolg, Fehler oder Ablehnung zurück.
 
-Akzeptanzkriterien:
+## Morning-Routine
 
-- Wake-Word läuft lokal.
-- OpenAI Realtime Client Secret wird über Backend erzeugt.
-- Voice-Client verbindet sich per WebRTC.
-- Audio-Antwort wird abgespielt.
-- Tool-Call `morning_routine.start` startet lokale Agent-API `/actions/morning`.
+Die Morning-Routine soll:
 
-## Phase 3: produktiver Desktop-Assistent
+- OBS starten oder minimieren
+- Discord öffnen
+- Spotify öffnen
+- WhatsApp öffnen
+- VS Code öffnen
+- TODO-Datei öffnen
+- offene TODOs lesen
+- aktuellen Projektstand analysieren
+- Fenster dynamisch anordnen
+- Ergebnis ans Backend melden
 
-Akzeptanzkriterien:
+## Not-Aus
 
-- Windows-Autostart ist eingerichtet.
-- Multi-Monitor-Layout ist konfigurierbar.
-- Spotify-API kann Playback starten.
-- VS-Code-Projektanalyse wird per OpenAI zusammengefasst.
-- Dashboard kann App-Pfade und Layouts verwalten.
+Folgende Befehle müssen priorisiert behandelt werden:
+
+- `Jarvis, stopp`
+- `Jarvis, abbrechen`
+- `Jarvis, beenden`
+- Discord `/jarvis stop confirm_code: STOP`
+
+## Akzeptanzkriterien
+
+1. Backend startet mit `npm run build` und `npm start`.
+2. Healthcheck funktioniert auf `http://localhost:8181/api/health`.
+3. Agent sendet Status an `/api/agent/status`.
+4. Dashboard zeigt Status ohne Secrets.
+5. Discord `/jarvis status` liest Backend/Agent-Status.
+6. Discord `/jarvis morning` erzeugt nur nach Bestätigung einen Command.
+7. Agent claimt und verarbeitet Commands.
+8. Unbekannte Apps werden nicht gestartet.
+9. Fehlende Pfade werden geloggt.
+10. Keine Secrets werden committed.
+
+## Konfiguration erforderlich
+
+- `backend/.env`
+- `desktop-agent/config.local.json`
+- echte lokale Programmpfade
+- echte Tokens
+- erlaubte Discord-User- oder Rollen-IDs

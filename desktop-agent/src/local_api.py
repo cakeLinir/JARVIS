@@ -1,5 +1,9 @@
+from __future__ import annotations
+
 import json
+import socket
 import threading
+from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any, Callable
 
@@ -8,10 +12,79 @@ LogFn = Callable[[str, str], None]
 ActionFn = Callable[[], None]
 StopFn = Callable[[], None]
 
+MAX_BODY_BYTES = 16 * 1024
+
+
+def _is_usable_token(token: str | None) -> bool:
+    if not token:
+        return False
+
+    raw = token.strip()
+    upper = raw.upper()
+    if not upper:
+        return False
+
+    markers = ["CHANGE_ME", "EXAMPLE", "PLACEHOLDER"]
+    if any(marker in upper for marker in markers):
+        return False
+
+    return len(raw) >= 16
+
+
+def _safe_config_status(config: dict[str, Any]) -> dict[str, Any]:
+    backend_url = str(config.get("backendUrl", "")).strip()
+    agent_token = str(config.get("agentToken", "")).strip()
+    local_api = config.get("localApi", {})
+    local_token = str(local_api.get("token", "")).strip() if isinstance(local_api, dict) else ""
+
+    return {
+        "backendUrlConfigured": bool(backend_url),
+        "agentTokenConfigured": _is_usable_token(agent_token),
+        "localApiTokenConfigured": _is_usable_token(local_token),
+    }
+
+
+def _todo_status(config: dict[str, Any], log: LogFn) -> dict[str, Any]:
+    try:
+        from todo.provider import get_todo_status
+
+        status = get_todo_status(config, log)
+        return {
+            "provider": status.get("provider"),
+            "total": status.get("total"),
+            "open": status.get("open"),
+            "dueTodayOrUnscheduled": status.get("dueTodayOrUnscheduled"),
+            "errorCode": status.get("errorCode"),
+            "message": status.get("message"),
+        }
+    except Exception as exc:
+        return {
+            "provider": "unknown",
+            "errorCode": "todo_status_failed",
+            "message": str(exc),
+        }
+
+
+def _voice_status(config: dict[str, Any]) -> dict[str, Any]:
+    try:
+        from voice.controller import get_voice_status
+
+        return get_voice_status(config).to_dict()
+    except Exception as exc:
+        return {
+            "enabled": False,
+            "mode": "unknown",
+            "wakeWordEnabled": False,
+            "sttProvider": "disabled",
+            "ttsProvider": "disabled",
+            "reason": f"Voice-Status konnte nicht gelesen werden: {exc}",
+        }
+
 
 class LocalApiServer:
     def __init__(
         self,
+        config: dict[str, Any],
         host: str,
         port: int,
         token: str,
@@ -19,14 +92,32 @@ class LocalApiServer:
         run_morning: ActionFn,
         stop_agent: StopFn,
     ) -> None:
+        self.config = config
         self.host = host
         self.port = port
         self.token = token
         self.log = log
         self.run_morning = run_morning
         self.stop_agent = stop_agent
+        self.started_at = datetime.now().isoformat()
         self.httpd: ThreadingHTTPServer | None = None
         self.thread: threading.Thread | None = None
+
+    def _health_payload(self) -> dict[str, Any]:
+        return {
+            "ok": True,
+            "service": "jarvis-local-agent",
+            "startedAt": self.started_at,
+            "now": datetime.now().isoformat(),
+            "runtime": {
+                "status": "online",
+                "host": self.host,
+                "port": self.port,
+            },
+            "configuration": _safe_config_status(self.config),
+            "voice": _voice_status(self.config),
+            "todo": _todo_status(self.config, self.log),
+        }
 
     def start(self) -> None:
         parent = self
@@ -44,9 +135,6 @@ class LocalApiServer:
                 self.wfile.write(body)
 
             def _authorized(self) -> bool:
-                if not parent.token:
-                    return True
-
                 expected = f"Bearer {parent.token}"
                 return self.headers.get("Authorization", "") == expected
 
@@ -54,6 +142,9 @@ class LocalApiServer:
                 length = int(self.headers.get("Content-Length", "0") or "0")
                 if length <= 0:
                     return {}
+
+                if length > MAX_BODY_BYTES:
+                    raise ValueError(f"request_body_too_large: max {MAX_BODY_BYTES} bytes")
 
                 raw = self.rfile.read(length).decode("utf-8", errors="replace")
                 if not raw:
@@ -63,7 +154,7 @@ class LocalApiServer:
 
             def do_GET(self) -> None:  # noqa: N802
                 if self.path == "/health":
-                    self._send_json(200, {"ok": True, "service": "jarvis-local-agent"})
+                    self._send_json(200, parent._health_payload())
                     return
 
                 self._send_json(404, {"ok": False, "error": "not_found"})
@@ -90,6 +181,11 @@ class LocalApiServer:
                     return
 
                 if self.path == "/actions/stop":
+                    confirm = body.get("confirm")
+                    if confirm != "STOP":
+                        self._send_json(400, {"ok": False, "error": "confirmation_required"})
+                        return
+
                     parent.stop_agent()
                     self._send_json(202, {"ok": True, "accepted": True, "action": "stop"})
                     return
@@ -116,15 +212,33 @@ def start_local_api(
 ) -> LocalApiServer | None:
     local_api_config = config.get("localApi", {})
 
-    if not local_api_config.get("enabled", False):
+    if not isinstance(local_api_config, dict) or not local_api_config.get("enabled", False):
         log("INFO", "Lokale Agent-API deaktiviert.")
         return None
 
-    host = str(local_api_config.get("host", "127.0.0.1"))
+    host = str(local_api_config.get("host", "127.0.0.1")).strip()
     port = int(local_api_config.get("port", 8765))
-    token = str(local_api_config.get("token", ""))
+    token = str(local_api_config.get("token", "")).strip()
+
+    if host not in {"127.0.0.1", "localhost"}:
+        log("ERROR", f"SICHERHEITSRISIKO: Lokale Agent-API darf nicht auf {host} binden.")
+        return None
+
+    if not _is_usable_token(token):
+        log("ERROR", "KONFIGURATION_ERFORDERLICH: Lokale Agent-API braucht einen echten Token.")
+        return None
+
+    probe = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    try:
+        probe.bind((host, port))
+    except OSError as exc:
+        log("ERROR", f"Lokale Agent-API Port nicht verfügbar: {host}:{port} | {exc}")
+        return None
+    finally:
+        probe.close()
 
     server = LocalApiServer(
+        config=config,
         host=host,
         port=port,
         token=token,

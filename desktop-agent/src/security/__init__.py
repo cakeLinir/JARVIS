@@ -1,0 +1,1 @@
+﻿"""Security helpers for the local JARVIS desktop agent."""

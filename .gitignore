@@ -3,6 +3,7 @@
 *.env
 !.env.example
 config.local.json
+config.json
 *.local.json
 
 # Node.js
@@ -27,3 +28,18 @@ logs/
 Thumbs.db
 .vscode/
 .idea/
+# JARVIS local/private runtime files
+backend/.env
+backend/.env.local
+desktop-agent/config.local.json
+.env
+.env.local
+logs/
+.jarvis-patch-backups/
+*.log
+*.jsonl
+*.sqlite3
+*.db
+*.bak
+backend/data/
+!backend/data/.gitkeep

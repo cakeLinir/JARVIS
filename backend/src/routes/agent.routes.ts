@@ -15,11 +15,23 @@ const AgentStatusSchema = z.object({
   timestamp: z.string().optional()
 });
 
+const TodoStatusSchema = z.object({
+  provider: z.string().optional(),
+  total: z.number().int().nonnegative().optional(),
+  open: z.number().int().nonnegative().optional(),
+  dueTodayOrUnscheduled: z.number().int().nonnegative().optional(),
+  items: z.array(z.unknown()).optional(),
+  errorCode: z.string().optional(),
+  message: z.string().optional()
+}).passthrough();
+
 const MorningLogSchema = z.object({
   timestamp: z.string(),
   startedApps: z.array(z.string()).default([]),
   failedApps: z.array(z.string()).default([]),
   todos: z.array(z.string()).default([]),
+  todoProvider: z.string().optional(),
+  todoStatus: TodoStatusSchema.optional(),
   projectSummary: z.string().optional()
 });
 
@@ -80,7 +92,14 @@ export async function agentRoutes(server: FastifyInstance) {
 
       const morningLog = setMorningLog(parsed.data);
 
-      request.log.info({ morningLog }, "Morning log received");
+      request.log.info(
+        {
+          todoProvider: morningLog.todoProvider,
+          todoCount: morningLog.todos.length,
+          receivedAt: morningLog.receivedAt
+        },
+        "Morning log received"
+      );
 
       return {
         ok: true,

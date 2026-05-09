@@ -1,6 +1,6 @@
 import type { FastifyRequest, FastifyReply } from "fastify";
 import { timingSafeEqual } from "node:crypto";
-import { config } from "../config/config.js";
+import { config, isConfiguredSecret } from "../config/config.js";
 
 function extractBearerToken(request: FastifyRequest): string | null {
   const authHeader = request.headers.authorization;
@@ -13,7 +13,7 @@ function extractBearerToken(request: FastifyRequest): string | null {
 }
 
 function isUsableToken(token: string): boolean {
-  return Boolean(token) && !token.startsWith("CHANGE_ME") && !token.endsWith("_TOKEN");
+  return isConfiguredSecret(token);
 }
 
 function safeEquals(a: string, b: string): boolean {

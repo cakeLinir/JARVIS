@@ -1,4 +1,6 @@
-﻿import json
+from __future__ import annotations
+
+import json
 import socket
 import urllib.error
 import urllib.parse
@@ -6,6 +8,7 @@ import urllib.request
 from datetime import datetime
 from typing import Any, Callable
 
+from security.config_guard import is_configured_secret, is_configured_url
 
 LogFn = Callable[[str, str], None]
 
@@ -25,13 +28,14 @@ def request_json(
     payload: dict[str, Any] | None,
     log: LogFn,
     timeout_seconds: int = 5,
+quiet_success: bool = False,
 ) -> dict[str, Any] | None:
-    if not backend_url:
-        log("WARN", "Backend-URL fehlt. Backend-Anfrage übersprungen.")
+    if not is_configured_url(backend_url):
+        log("WARN", "Backend-URL fehlt oder ist ein Platzhalter. Backend-Anfrage Ã¼bersprungen.")
         return None
 
-    if not agent_token:
-        log("WARN", "Agent-Token fehlt. Backend-Anfrage übersprungen.")
+    if not is_configured_secret(agent_token):
+        log("WARN", "Agent-Token fehlt oder ist ein Platzhalter. Backend-Anfrage Ã¼bersprungen.")
         return None
 
     url = backend_url.rstrip("/") + endpoint
@@ -56,7 +60,8 @@ def request_json(
     try:
         with urllib.request.urlopen(request, timeout=timeout_seconds) as response:
             response_body = response.read().decode("utf-8", errors="replace")
-            log("OK", f"Backend {method} erfolgreich: {endpoint} | HTTP {response.status}")
+            if not quiet_success:
+                log("OK", f"Backend {method} erfolgreich: {endpoint} | HTTP {response.status}")
 
             if not response_body:
                 return {}
@@ -65,7 +70,7 @@ def request_json(
 
     except urllib.error.HTTPError as exc:
         error_body = exc.read().decode("utf-8", errors="replace")
-        log("ERROR", f"Backend HTTP-Fehler: {endpoint} | HTTP {exc.code} | {error_body}")
+        log("ERROR", f"Backend HTTP-Fehler: {endpoint} | HTTP {exc.code} | {error_body[:700]}")
         return None
 
     except urllib.error.URLError as exc:
@@ -96,7 +101,7 @@ def post_json(
     )
 
     if result is not None:
-        log("BACKEND", json.dumps(result, ensure_ascii=False))
+        log("BACKEND", json.dumps(result, ensure_ascii=False)[:1200])
         return True
 
     return False
@@ -126,6 +131,8 @@ def send_morning_log(
     failed_apps: list[str],
     todos: list[str],
     project_summary: str | None = None,
+    todo_provider: str | None = None,
+    todo_status: dict[str, Any] | None = None,
 ) -> bool:
     payload = {
         "timestamp": datetime.now().isoformat(),
@@ -134,6 +141,12 @@ def send_morning_log(
         "todos": todos,
         "projectSummary": project_summary,
     }
+
+    if todo_provider:
+        payload["todoProvider"] = todo_provider
+
+    if todo_status:
+        payload["todoStatus"] = todo_status
 
     return post_json(
         backend_url=config.get("backendUrl", ""),
@@ -155,6 +168,7 @@ def get_next_command(config: dict[str, Any], log: LogFn) -> dict[str, Any] | Non
         payload=None,
         log=log,
         timeout_seconds=5,
+        quiet_success=True,
     )
 
     if not result:
@@ -175,15 +189,21 @@ def complete_command(
     status: str,
     result: str,
     details: dict[str, Any] | None = None,
+    error_code: str | None = None,
 ) -> bool:
+    payload: dict[str, Any] = {
+        "status": status,
+        "result": result,
+        "details": details or {},
+    }
+
+    if error_code:
+        payload["errorCode"] = error_code
+
     return post_json(
         backend_url=config.get("backendUrl", ""),
         agent_token=config.get("agentToken", ""),
         endpoint=f"/api/commands/{command_id}/complete",
-        payload={
-            "status": status,
-            "result": result,
-            "details": details or {},
-        },
+        payload=payload,
         log=log,
     )

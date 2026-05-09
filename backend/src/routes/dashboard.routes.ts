@@ -1,9 +1,26 @@
 import type { FastifyInstance } from "fastify";
-import { config } from "../config/config.js";
+import { config, getConfigStatus } from "../config/config.js";
 import { requireAnyJarvisAuth, requireDashboardAuth } from "../security/auth.js";
-import { getAgentStatus, getMorningLog } from "../services/agent-state.js";
+import {
+  getAgentRuntimeStatus,
+  getAgentStatus,
+  getMorningLog
+} from "../services/agent-state.js";
 import { getCommandCounts, getRecentCommands } from "../services/command-store.js";
+import { appendAuditEvent, getRecentAuditEvents } from "../services/audit-log.js";
 import { getNewsSources } from "../services/news.service.js";
+
+function numberFromEnv(value: string | undefined, fallback: number): number {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function runtimeOptions() {
+  return {
+    staleAfterSeconds: numberFromEnv(process.env.JARVIS_AGENT_STALE_AFTER_SECONDS, 45),
+    offlineAfterSeconds: numberFromEnv(process.env.JARVIS_AGENT_OFFLINE_AFTER_SECONDS, 180)
+  };
+}
 
 function dashboardHtml() {
   return `<!doctype html>
@@ -28,7 +45,7 @@ function dashboardHtml() {
 <body>
   <header>
     <h1>JARVIS Dashboard</h1>
-    <p class="muted">MVP-Verwaltung für Backend, Bot, lokalen Agent und Realtime-Voice.</p>
+    <p class="muted">MVP-Verwaltung für Backend, Bot, lokalen Agent, TODOs, Runtime und Realtime-Voice.</p>
     <div class="row">
       <input id="token" type="password" placeholder="Dashboard Token" size="42" />
       <button onclick="loadOverview()">Status laden</button>
@@ -37,9 +54,13 @@ function dashboardHtml() {
   </header>
   <main>
     <section><h2>Übersicht</h2><pre id="overview">Noch nicht geladen.</pre></section>
+    <section><h2>Runtime</h2><pre id="runtime">Noch nicht geladen.</pre></section>
     <section><h2>Agent</h2><pre id="agent">Noch nicht geladen.</pre></section>
+    <section><h2>TODO</h2><pre id="todo">Noch nicht geladen.</pre></section>
     <section><h2>Morning Log</h2><pre id="morning">Noch nicht geladen.</pre></section>
+    <section><h2>Konfiguration</h2><pre id="configuration">Noch nicht geladen.</pre></section>
     <section><h2>Commands</h2><pre id="commands">Noch nicht geladen.</pre></section>
+    <section><h2>Audit</h2><pre id="audit">Noch nicht geladen.</pre></section>
   </main>
 <script>
 function token() { return document.getElementById('token').value.trim(); }
@@ -49,9 +70,13 @@ async function loadOverview() {
   const res = await fetch('/api/dashboard/overview', { headers: headers() });
   const data = await res.json();
   document.getElementById('overview').textContent = pretty(data.overview ?? data);
+  document.getElementById('runtime').textContent = pretty(data.runtime ?? null);
   document.getElementById('agent').textContent = pretty(data.agentStatus ?? null);
+  document.getElementById('todo').textContent = pretty(data.todo ?? null);
   document.getElementById('morning').textContent = pretty(data.morningLog ?? null);
+  document.getElementById('configuration').textContent = pretty(data.configuration ?? null);
   document.getElementById('commands').textContent = pretty(data.recentCommands ?? []);
+  document.getElementById('audit').textContent = pretty(data.recentAuditEvents ?? []);
 }
 async function startMorning() {
   const res = await fetch('/api/dashboard/commands/morning-routine', { method: 'POST', headers: headers(), body: JSON.stringify({ confirm: 'START' }) });
@@ -62,6 +87,29 @@ async function startMorning() {
 </script>
 </body>
 </html>`;
+}
+
+function buildTodoOverview() {
+  const morningLog = getMorningLog();
+
+  if (!morningLog) {
+    return {
+      status: "unknown",
+      message: "Noch kein Morning-Log vorhanden. Starte den Agent oder die Morgenroutine.",
+      provider: null,
+      openItems: []
+    };
+  }
+
+  return {
+    status: "ready",
+    provider: morningLog.todoProvider ?? morningLog.todoStatus?.provider ?? "unknown",
+    total: morningLog.todoStatus?.total ?? null,
+    open: morningLog.todoStatus?.open ?? morningLog.todos.length,
+    dueTodayOrUnscheduled: morningLog.todoStatus?.dueTodayOrUnscheduled ?? morningLog.todos.length,
+    items: morningLog.todoStatus?.items ?? morningLog.todos,
+    lastUpdatedAt: morningLog.receivedAt
+  };
 }
 
 export async function dashboardRoutes(server: FastifyInstance) {
@@ -75,19 +123,31 @@ export async function dashboardRoutes(server: FastifyInstance) {
       preHandler: requireAnyJarvisAuth
     },
     async () => {
+      const configuration = getConfigStatus();
+      const todo = buildTodoOverview();
+      const runtime = getAgentRuntimeStatus(runtimeOptions());
+
       return {
         ok: true,
         overview: {
           service: "jarvis-backend",
           now: new Date().toISOString(),
+          runtimeState: runtime.state,
           realtimeModel: config.realtimeModel,
           realtimeVoice: config.realtimeVoice,
           newsSources: getNewsSources().map(source => source.name),
-          commandCounts: getCommandCounts()
+          commandCounts: getCommandCounts(),
+          configurationSummary: configuration.summary,
+          todoProvider: todo.provider,
+          todoOpen: todo.open
         },
+        runtime,
+        configuration,
+        todo,
         agentStatus: getAgentStatus(),
         morningLog: getMorningLog(),
-        recentCommands: getRecentCommands(10)
+        recentCommands: getRecentCommands(10),
+        recentAuditEvents: getRecentAuditEvents(20)
       };
     }
   );
@@ -108,17 +168,37 @@ export async function dashboardRoutes(server: FastifyInstance) {
         });
       }
 
-      const { addCommand, createCommandId } = await import("../services/command-store.js");
+      const { addCommand, createCommandId, createCorrelationId } = await import("../services/command-store.js");
       const command = addCommand({
         id: createCommandId(),
+        correlationId: createCorrelationId(),
         type: "morning_routine",
         status: "pending",
         requestedBy: "dashboard",
+        source: "dashboard",
         discordRoleIds: [],
         payload: {
           source: "dashboard"
         },
         createdAt: new Date().toISOString()
+      });
+
+      appendAuditEvent({
+        component: "backend",
+        action: "command.create",
+        result: "accepted",
+        commandId: command.id,
+        correlationId: command.correlationId,
+        actor: {
+          type: "dashboard",
+          id: "dashboard"
+        },
+        message: "Dashboard hat Morning-Routine-Command erstellt.",
+        details: {
+          type: command.type,
+          source: command.source,
+          requestedBy: command.requestedBy
+        }
       });
 
       return {

@@ -1,56 +1,72 @@
 # JARVIS Architektur
 
-## Komponenten
+## Verifizierter Zielzustand
 
-### 1. Windows-VPS Backend
+JARVIS besteht aus drei getrennten Laufzeitbereichen:
 
-- Fastify API
-- Authentifizierung für Agent, Bot und Dashboard
-- Command-Queue
-- OpenAI Chat-/Realtime-Service
-- Dev-News-Aggregation
-- Dashboard-API
-- zentrale Policy-Entscheidungen
+1. **VPS-Backend**
+   - Fastify API
+   - OpenAI-Service
+   - Realtime Client-Secret-Service
+   - Dev-News-Aggregation
+   - Command-Routing
+   - Dashboard-MVP
+   - Authentifizierung für Agent, Bot und Dashboard
 
-### 2. Nextcord Bot Bridge
+2. **Lokaler Windows-Agent**
+   - lokale Programmausführung
+   - lokale Fenstersteuerung
+   - lokale TODO-/Projektanalyse
+   - lokale Agent-API auf `127.0.0.1`
+   - später Voice/Wake-Word/STT/TTS
 
-- läuft auf dem VPS neben oder innerhalb des vorhandenen Nextcord-Bots
-- ruft ausschließlich das JARVIS-Backend auf
-- erzeugt Commands statt direkt lokale Programme zu starten
-- nutzt Discord-Slash-Commands, keine Selfbot-Automation
+3. **Discord-Bot**
+   - bleibt im separaten Repository `cakeLinir/discord_bot_hundekuchenlive`
+   - erzeugt Backend-Commands
+   - führt keine Windows-Aktionen selbst aus
 
-### 3. Webdashboard
+## Port-Entscheidung
 
-- wird vom Backend unter `/dashboard` ausgeliefert
-- fragt Status, Commands, Agent-Heartbeat und Morning-Log ab
-- kann die Morning-Routine nach expliziter Bestätigung anfordern
+Das JARVIS-Backend verwendet Port `8181`.
 
-### 4. Lokaler Windows-Agent
+Port `8080` wird nicht als Standard verwendet, weil er auf dem VPS bereits durch andere Software belegt ist.
 
-- startet nach Windows-Login
-- pollt Backend-Commands
-- startet Programme
-- liest TODOs
-- analysiert Projekte lokal
-- ordnet Fenster an
-- stellt eine lokale API für den späteren Voice-Client bereit
+## Sicherheitsprinzip
 
-### 5. Voice-Client
-
-- späterer Electron/Tauri/WebRTC-Client
-- Wake-Word lokal
-- OpenAI Realtime Audio nach Aktivierung
-- ruft lokale Agent-API für Windows-Aktionen auf
-
-## Realtime-Datenfluss
+Das Backend fordert lokale Aktionen nur an. Die Ausführung erfolgt ausschließlich über den lokalen Windows-Agent.
 
 ```text
-User sagt Wake-Word
-→ Voice-Client aktiviert Session
-→ Backend erstellt OpenAI Realtime Client Secret
-→ Voice-Client verbindet sich per WebRTC
-→ Modell antwortet per Audio
-→ Tool-Call löst lokale Agent-API aus
-→ Agent führt Windows-Aktion aus
-→ Ergebnis geht zurück in die Session
+Discord/Dashboard/Voice
+  -> Backend Command
+  -> Agent claimt Command
+  -> Agent validiert lokal
+  -> Agent führt erlaubte Aktion aus
+  -> Agent meldet Ergebnis zurück
 ```
+
+## Nicht erlaubt
+
+- Keine Selfbots.
+- Keine Secrets im Repository.
+- Keine OpenAI-Keys im Agent oder Dashboard.
+- Keine lokalen Windows-Aktionen direkt vom Backend.
+- Keine Ausführung unbekannter Programme.
+- Keine erfundenen Pfade.
+- Keine dauerhafte Audioübertragung ohne Aktivierung.
+
+## MVP-Komponenten
+
+| Komponente | Status |
+|---|---|
+| Backend Health | vorhanden |
+| Agent Status | vorhanden |
+| Morning Log | vorhanden |
+| Command Queue | vorhanden |
+| Dashboard-MVP | vorhanden |
+| Dev-News | vorhanden |
+| OpenAI Chat/Realtime Secret | vorhanden |
+| Windows-Agent Textmodus | vorhanden |
+| Voice/Wake-Word | später |
+| Multi-Monitor-Fensterlogik | auszubauen |
+| Audit-Log | auszubauen |
+| Persistenz SQLite/PostgreSQL | auszubauen |

@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { config } from "../config/config.js";
+import { appendAuditEvent } from "./audit-log.js";
 
 export type CommandStatus =
   | "pending"
@@ -10,10 +11,20 @@ export type CommandStatus =
   | "rejected"
   | "expired";
 
+export type CommandSource =
+  | "discord"
+  | "dashboard"
+  | "agent"
+  | "backend"
+  | "local"
+  | "unknown";
+
 export type JarvisCommand = {
   id: string;
+  correlationId?: string;
   type: "morning_routine" | "dev_news" | "app_open" | "system_stop";
   status: CommandStatus;
+  source?: CommandSource;
   requestedBy: string;
   discordUserId?: string;
   discordRoleIds: string[];
@@ -22,9 +33,11 @@ export type JarvisCommand = {
   claimedAt?: string;
   claimedBy?: string;
   completedAt?: string;
+  attempts?: number;
   result?: string;
   details?: unknown;
   rejectionReason?: string;
+  errorCode?: string;
 };
 
 const dataDir = path.resolve(process.cwd(), "data");
@@ -82,6 +95,11 @@ export function createCommandId(): string {
   return `cmd_${Date.now()}_${random}`;
 }
 
+export function createCorrelationId(): string {
+  const random = Math.random().toString(16).slice(2, 10);
+  return `corr_${Date.now()}_${random}`;
+}
+
 export function addCommand(command: JarvisCommand): JarvisCommand {
   commands.push(command);
   saveCommands();
@@ -116,6 +134,18 @@ export function resetExpiredClaimedCommands(): number {
         previousClaimedBy: command.claimedBy,
         requeuedAt: new Date().toISOString()
       };
+      appendAuditEvent({
+        component: "backend",
+        action: "command.claim_expired",
+        result: "expired",
+        commandId: command.id,
+        correlationId: command.correlationId,
+        actor: {
+          type: "system"
+        },
+        errorCode: "command_claim_timeout",
+        message: `Command wurde nach ${config.commandClaimTimeoutSeconds}s Claim-Timeout erneut freigegeben.`
+      });
       command.claimedAt = undefined;
       command.claimedBy = undefined;
       changed += 1;

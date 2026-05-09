@@ -1,12 +1,47 @@
+from __future__ import annotations
+
 import json
 import os
-import subprocess
 import sys
 import threading
 import time
 from datetime import datetime
 from pathlib import Path
 from typing import Any
+
+
+def configure_console_encoding() -> None:
+    """
+    Force UTF-8 for Windows console and Python streams.
+    Prevents mojibake such as spÃ¤teren/späteren mismatch in PowerShell output.
+    """
+    if os.name != "nt":
+        return
+
+    try:
+        import ctypes
+
+        ctypes.windll.kernel32.SetConsoleOutputCP(65001)
+        ctypes.windll.kernel32.SetConsoleCP(65001)
+    except Exception:
+        pass
+
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(encoding="utf-8", errors="replace")
+        except Exception:
+            pass
+
+
+configure_console_encoding()
+
+from execution.app_launcher import detached_popen, start_app
+from security.config_guard import (
+    CONFIG_REQUIRED_MARKER,
+    contains_placeholder,
+    redact,
+    validate_agent_config,
+)
 
 
 AGENT_DIR = Path(__file__).resolve().parents[1]
@@ -16,21 +51,32 @@ CONFIG_PATH = AGENT_DIR / "config.json"
 LOCAL_CONFIG_PATH = AGENT_DIR / "config.local.json"
 LOG_DIR = JARVIS_ROOT / "logs"
 LOG_FILE = LOG_DIR / "desktop-agent.log"
-
-CREATE_NO_WINDOW = 0x08000000
-DETACHED_PROCESS = 0x00000008
+JSON_LOG_FILE = LOG_DIR / "desktop-agent.jsonl"
 
 MORNING_ROUTINE_LOCK = threading.Lock()
 
 
-def log(level: str, message: str) -> None:
+def log(level: str, message: str, **fields: Any) -> None:
     LOG_DIR.mkdir(parents=True, exist_ok=True)
 
-    line = f"{datetime.now().isoformat()} [{level}] {message}"
+    safe_message = message.replace(os.getenv("JARVIS_AGENT_TOKEN", ""), "***") if os.getenv("JARVIS_AGENT_TOKEN") else message
+
+    event = {
+        "timestamp": datetime.now().isoformat(),
+        "component": "desktop-agent",
+        "level": level,
+        "message": safe_message,
+        **fields,
+    }
+
+    line = f"{event['timestamp']} [{level}] {safe_message}"
     print(line)
 
     with LOG_FILE.open("a", encoding="utf-8") as file:
         file.write(line + "\n")
+
+    with JSON_LOG_FILE.open("a", encoding="utf-8") as file:
+        file.write(json.dumps(event, ensure_ascii=False) + "\n")
 
 
 def deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
@@ -51,7 +97,12 @@ def deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]
 
 def load_json_file(path: Path) -> dict[str, Any]:
     with path.open("r", encoding="utf-8-sig") as file:
-        return json.load(file)
+        parsed = json.load(file)
+
+    if not isinstance(parsed, dict):
+        raise ValueError(f"Config muss ein JSON-Objekt sein: {path}")
+
+    return parsed
 
 
 def load_config() -> dict[str, Any]:
@@ -64,179 +115,66 @@ def load_config() -> dict[str, Any]:
     if LOCAL_CONFIG_PATH.exists():
         config = deep_merge(config, load_json_file(LOCAL_CONFIG_PATH))
         log("INFO", f"Lokale Config geladen: {LOCAL_CONFIG_PATH}")
+    else:
+        log("WARN", f"{CONFIG_REQUIRED_MARKER}: Lokale Config fehlt: {LOCAL_CONFIG_PATH}")
 
     env_agent_token = os.getenv("JARVIS_AGENT_TOKEN", "").strip()
     if env_agent_token:
         config["agentToken"] = env_agent_token
+        log("INFO", f"Agent-Token aus ENV geladen: {redact(env_agent_token)}")
 
     env_backend_url = os.getenv("JARVIS_BACKEND_URL", "").strip()
     if env_backend_url:
         config["backendUrl"] = env_backend_url
+        log("INFO", "Backend-URL aus ENV geladen.")
+
+    findings = validate_agent_config(config)
+    for finding in findings:
+        log(finding.level.upper(), finding.message, code=finding.code, field=finding.field)
 
     return config
 
 
-def detached_popen(command: list[str], working_dir: str | None = None) -> subprocess.Popen:
-    return subprocess.Popen(
-        command,
-        cwd=working_dir if working_dir else None,
-        stdin=subprocess.DEVNULL,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-        creationflags=CREATE_NO_WINDOW | DETACHED_PROCESS,
-        close_fds=True
-    )
-
-
-def open_uri(uri: str) -> bool:
-    try:
-        detached_popen(["cmd", "/c", "start", "", uri])
-        log("OK", f"URI geöffnet: {uri}")
-        return True
-    except Exception as exc:
-        log("ERROR", f"URI konnte nicht geöffnet werden: {uri} | {exc}")
-        return False
-
-
-def start_path(
-    path_value: str | None,
-    args: list[str] | None = None,
-    working_dir: str | None = None
-) -> bool:
-    if not path_value:
-        log("WARN", "Kein Programmpfad konfiguriert.")
-        return False
-
-    path = Path(path_value)
-
-    if not path.exists():
-        log("ERROR", f"Programmpfad existiert nicht: {path}")
-        return False
-
-    try:
-        command = [str(path)]
-        if args:
-            command.extend(args)
-
-        detached_popen(command, working_dir)
-        log("OK", f"Programm gestartet: {path}")
-        return True
-
-    except Exception as exc:
-        log("ERROR", f"Programm konnte nicht gestartet werden: {path} | {exc}")
-        return False
-
-
-def start_command(command: str | None, args: list[str] | None = None) -> bool:
-    if not command:
-        log("WARN", "Kein Command konfiguriert.")
-        return False
-
-    try:
-        full_command = [command]
-        if args:
-            full_command.extend(args)
-
-        detached_popen(full_command)
-        log("OK", f"Command gestartet: {' '.join(full_command)}")
-        return True
-
-    except FileNotFoundError:
-        log("ERROR", f"Command nicht gefunden: {command}")
-        return False
-
-    except Exception as exc:
-        log("ERROR", f"Command konnte nicht gestartet werden: {command} | {exc}")
-        return False
-
-
-def start_app(name: str, app_config: dict[str, Any]) -> bool:
-    if not app_config.get("enabled", False):
-        log("INFO", f"App deaktiviert: {name}")
-        return False
-
-    mode = app_config.get("mode")
-
-    log("INFO", f"Starte App: {name} | Modus: {mode}")
-
-    if mode == "uri":
-        uri = app_config.get("uri")
-        if not uri:
-            log("ERROR", f"URI fehlt für App: {name}")
-            return False
-        return open_uri(uri)
-
-    if mode == "path":
-        return start_path(
-            app_config.get("path"),
-            app_config.get("args", []),
-            app_config.get("workingDir")
-        )
-
-    if mode == "command":
-        return start_command(
-            app_config.get("command"),
-            app_config.get("args", [])
-        )
-
-    log("ERROR", f"Unbekannter Startmodus für {name}: {mode}")
-    return False
-
-
 def get_todo_path(config: dict[str, Any]) -> Path | None:
     todo_config = config.get("todo", {})
+    provider = str(todo_config.get("provider", "markdown")).strip().lower()
+
+    if provider != "markdown":
+        return None
+
     todo_path_value = todo_config.get("markdownPath")
 
     if not todo_path_value:
-        log("ERROR", "TODO Markdown-Pfad fehlt.")
+        log("ERROR", "KONFIGURATION_ERFORDERLICH: TODO Markdown-Pfad fehlt.")
         return None
 
     todo_path = Path(todo_path_value)
 
     if not todo_path.exists():
-        log("ERROR", f"TODO-Datei existiert nicht: {todo_path}")
+        log("ERROR", f"KONFIGURATION_ERFORDERLICH: TODO-Datei existiert nicht: {todo_path}")
         return None
 
     return todo_path
 
 
 def open_todo(config: dict[str, Any]) -> bool:
-    todo_path = get_todo_path(config)
-
-    if not todo_path:
-        return False
-
     try:
-        detached_popen(["notepad.exe", str(todo_path)])
-        log("OK", f"TODO-Datei mit Notepad geöffnet: {todo_path}")
-        return True
+        from todo.provider import open_todo_provider
+
+        return open_todo_provider(config, log)
     except Exception as exc:
-        log("ERROR", f"TODO-Datei konnte nicht geöffnet werden: {todo_path} | {exc}")
+        log("ERROR", f"TODO Provider konnte nicht geöffnet werden: {exc}")
         return False
 
 
 def read_todos(config: dict[str, Any]) -> list[str]:
-    todo_config = config.get("todo", {})
-    provider = todo_config.get("provider")
+    try:
+        from todo.provider import read_open_todo_titles
 
-    if provider != "markdown":
-        log("ERROR", f"TODO Provider noch nicht implementiert: {provider}")
+        return read_open_todo_titles(config, log)
+    except Exception as exc:
+        log("ERROR", f"TODO Provider konnte nicht gelesen werden: {exc}")
         return []
-
-    todo_path = get_todo_path(config)
-
-    if not todo_path:
-        return []
-
-    lines = todo_path.read_text(encoding="utf-8-sig").splitlines()
-
-    items = []
-    for line in lines:
-        stripped = line.strip()
-        if stripped.startswith("- [ ]"):
-            items.append(stripped.replace("- [ ]", "").strip())
-
-    return items
 
 
 def arrange_windows() -> None:
@@ -246,11 +184,11 @@ def arrange_windows() -> None:
         arrange_morning_windows(log)
 
     except ImportError as exc:
-        log("ERROR", f"Fenster-Manager Abhängigkeit fehlt: {exc}")
+        log("ERROR", f"Fenster-Manager AbhÃ¤ngigkeit fehlt: {exc}", errorCode="window_manager_dependency_missing")
         log("ERROR", "Installiere mit: py -3 -m pip install pywin32 psutil")
 
     except Exception as exc:
-        log("ERROR", f"Fensteranordnung fehlgeschlagen: {exc}")
+        log("ERROR", f"Fensteranordnung fehlgeschlagen: {exc}", errorCode="window_arrange_failed")
 
 
 def analyze_current_project(config: dict[str, Any]) -> str:
@@ -258,13 +196,13 @@ def analyze_current_project(config: dict[str, Any]) -> str:
         from integrations.project_analyzer import analyze_project, build_human_summary
 
         project_config = config.get("project", {})
-        project_path = project_config.get("lastProjectPath")
+        project_path = project_config.get("lastProjectPath") if isinstance(project_config, dict) else None
 
         analysis = analyze_project(project_path, log)
         return str(analysis.get("summary") or build_human_summary(analysis))
 
     except Exception as exc:
-        log("ERROR", f"Projektanalyse fehlgeschlagen: {exc}")
+        log("ERROR", f"Projektanalyse fehlgeschlagen: {exc}", errorCode="project_analysis_failed")
         return f"Projektanalyse fehlgeschlagen: {exc}"
 
 
@@ -275,7 +213,21 @@ def send_agent_status_safe(config: dict[str, Any], status: str) -> None:
         send_agent_status(config, log, status)
 
     except Exception as exc:
-        log("ERROR", f"Agent-Status konnte nicht ans Backend gesendet werden: {exc}")
+        log("ERROR", f"Agent-Status konnte nicht ans Backend gesendet werden: {exc}", errorCode="agent_status_send_failed")
+
+
+def get_todo_status_safe(config: dict[str, Any]) -> dict[str, Any]:
+    try:
+        from todo.provider import get_todo_status
+
+        return get_todo_status(config, log)
+    except Exception as exc:
+        log("ERROR", f"TODO Status konnte nicht ermittelt werden: {exc}")
+        return {
+            "provider": "unknown",
+            "errorCode": "todo_status_failed",
+            "message": str(exc),
+        }
 
 
 def send_morning_log_safe(
@@ -288,6 +240,9 @@ def send_morning_log_safe(
     try:
         from integrations.backend_client import send_morning_log
 
+        todo_status = get_todo_status_safe(config)
+        todo_provider = str(todo_status.get("provider", "unknown"))
+
         send_morning_log(
             config=config,
             log=log,
@@ -295,6 +250,8 @@ def send_morning_log_safe(
             failed_apps=failed_apps,
             todos=todos,
             project_summary=project_summary,
+            todo_provider=todo_provider,
+            todo_status=todo_status,
         )
 
     except Exception as exc:
@@ -303,7 +260,7 @@ def send_morning_log_safe(
 
 def run_morning_routine(config: dict[str, Any]) -> None:
     if not MORNING_ROUTINE_LOCK.acquire(blocking=False):
-        log("WARN", "Morgenroutine läuft bereits. Neuer Start wurde blockiert.")
+        log("WARN", "Morgenroutine lÃ¤uft bereits. Neuer Start wurde blockiert.", errorCode="morning_routine_already_running")
         return
 
     try:
@@ -313,21 +270,25 @@ def run_morning_routine(config: dict[str, Any]) -> None:
         failed_apps: list[str] = []
 
         apps = config.get("apps", {})
+        if not isinstance(apps, dict):
+            log("ERROR", f"{CONFIG_REQUIRED_MARKER}: apps-Konfiguration ist ungÃ¼ltig.", errorCode="apps_config_invalid")
+            apps = {}
 
         for app_name in ["obs", "discord", "spotify", "whatsapp", "vscode"]:
             app_config = apps.get(app_name)
 
-            if not app_config:
-                log("WARN", f"Keine App-Konfiguration gefunden: {app_name}")
+            if not isinstance(app_config, dict):
+                log("WARN", f"Keine App-Konfiguration gefunden: {app_name}", errorCode="app_config_missing", app=app_name)
                 failed_apps.append(app_name)
                 continue
 
-            success = start_app(app_name, app_config)
+            result = start_app(app_name, app_config, log)
 
-            if success:
+            if result.success:
                 started_apps.append(app_name)
             else:
                 failed_apps.append(app_name)
+                log("ERROR", f"App-Start fehlgeschlagen: {app_name} | {result.message}", errorCode=result.error_code or "app_start_failed", app=app_name)
 
         todo_opened = open_todo(config)
 
@@ -343,7 +304,7 @@ def run_morning_routine(config: dict[str, Any]) -> None:
             for item in todos:
                 log("TODO", item)
         else:
-            log("INFO", "Keine offenen TODOs für heute gefunden.")
+            log("INFO", "Keine offenen TODOs fÃ¼r heute gefunden.")
 
         project_summary = analyze_current_project(config)
 
@@ -366,106 +327,143 @@ def run_morning_routine(config: dict[str, Any]) -> None:
         MORNING_ROUTINE_LOCK.release()
 
 
+def complete_backend_command(
+    config: dict[str, Any],
+    command_id: str,
+    status: str,
+    result: str,
+    details: dict[str, Any] | None = None,
+    error_code: str | None = None,
+) -> None:
+    from integrations.backend_client import complete_command
+
+    complete_command(
+        config=config,
+        log=log,
+        command_id=command_id,
+        status=status,
+        result=result,
+        details=details or {},
+        error_code=error_code,
+    )
+
+
 def handle_backend_command(config: dict[str, Any], command: dict[str, Any]) -> None:
     command_id = command.get("id")
     command_type = command.get("type")
+    correlation_id = command.get("correlationId")
 
     if not command_id:
-        log("ERROR", "Backend-Command ohne ID erhalten.")
+        log("ERROR", "Backend-Command ohne ID erhalten.", errorCode="command_id_missing")
         return
 
-    log("INFO", f"Backend-Command erhalten: {command_id} | {command_type}")
+    log("INFO", f"Backend-Command erhalten: {command_id} | {command_type}", commandId=command_id, correlationId=correlation_id)
 
     try:
-        from integrations.backend_client import complete_command
-
         if command_type == "morning_routine":
             run_morning_routine(config)
 
-            complete_command(
+            complete_backend_command(
                 config=config,
-                log=log,
                 command_id=command_id,
                 status="completed",
-                result="Morning Routine wurde lokal ausgeführt.",
-                details={"type": command_type},
+                result="Morning Routine wurde lokal ausgefÃ¼hrt.",
+                details={"type": command_type, "correlationId": correlation_id},
             )
             return
 
         if command_type == "dev_news":
-            complete_command(
+            complete_backend_command(
                 config=config,
-                log=log,
                 command_id=command_id,
                 status="completed",
-                result="Dev-News werden aktuell über Backend /api/news/dev bereitgestellt.",
-                details={"type": command_type},
+                result="Dev-News werden aktuell Ã¼ber Backend /api/news/dev bereitgestellt.",
+                details={"type": command_type, "correlationId": correlation_id},
             )
             return
 
         if command_type == "app_open":
             payload = command.get("payload") or {}
-            app_name = str(payload.get("app", "")) if isinstance(payload, dict) else ""
-            app_config = config.get("apps", {}).get(app_name)
+            app_name = str(payload.get("app", "")).strip().lower() if isinstance(payload, dict) else ""
+            app_config = config.get("apps", {}).get(app_name) if isinstance(config.get("apps", {}), dict) else None
 
-            if not app_name or not app_config:
-                complete_command(
+            if not app_name or not isinstance(app_config, dict):
+                complete_backend_command(
                     config=config,
-                    log=log,
                     command_id=command_id,
                     status="rejected",
                     result=f"App nicht konfiguriert: {app_name}",
-                    details={"type": command_type, "app": app_name},
+                    details={"type": command_type, "app": app_name, "correlationId": correlation_id},
+                    error_code="app_not_configured",
                 )
                 return
 
-            success = start_app(app_name, app_config)
-            complete_command(
+            launch_result = start_app(app_name, app_config, log)
+            complete_backend_command(
                 config=config,
-                log=log,
                 command_id=command_id,
-                status="completed" if success else "failed",
-                result=f"App-Start {'erfolgreich' if success else 'fehlgeschlagen'}: {app_name}",
-                details={"type": command_type, "app": app_name},
+                status="completed" if launch_result.success else "failed",
+                result=launch_result.message,
+                details={"type": command_type, "app": app_name, "correlationId": correlation_id},
+                error_code=launch_result.error_code,
             )
             return
 
         if command_type == "system_stop":
-            complete_command(
+            complete_backend_command(
                 config=config,
-                log=log,
                 command_id=command_id,
                 status="completed",
                 result="System-Stop Command erhalten. Agent bleibt bis zum lokalen Loop-Ende aktiv.",
-                details={"type": command_type},
+                details={"type": command_type, "correlationId": correlation_id},
             )
             return
 
-        complete_command(
+        complete_backend_command(
             config=config,
-            log=log,
             command_id=command_id,
             status="rejected",
             result=f"Unbekannter Command-Typ: {command_type}",
-            details={"type": command_type},
+            details={"type": command_type, "correlationId": correlation_id},
+            error_code="unknown_command_type",
         )
 
     except Exception as exc:
-        log("ERROR", f"Backend-Command fehlgeschlagen: {command_id} | {exc}")
+        log("ERROR", f"Backend-Command fehlgeschlagen: {command_id} | {exc}", commandId=command_id, errorCode="command_execution_failed")
 
         try:
-            from integrations.backend_client import complete_command
-
-            complete_command(
+            complete_backend_command(
                 config=config,
-                log=log,
                 command_id=command_id,
                 status="failed",
                 result=str(exc),
-                details={"type": command_type},
+                details={"type": command_type, "correlationId": correlation_id},
+                error_code="command_execution_failed",
             )
         except Exception as inner_exc:
-            log("ERROR", f"Command-Fehler konnte nicht ans Backend gesendet werden: {inner_exc}")
+            log("ERROR", f"Command-Fehler konnte nicht ans Backend gesendet werden: {inner_exc}", errorCode="command_failure_report_failed")
+
+
+def get_heartbeat_interval_seconds(config: dict[str, Any]) -> int:
+    runtime_config = config.get("runtime", {})
+    raw_value = runtime_config.get("heartbeatIntervalSeconds", 30) if isinstance(runtime_config, dict) else 30
+
+    try:
+        interval = int(raw_value)
+    except Exception:
+        interval = 30
+
+    return max(10, min(interval, 300))
+
+
+def heartbeat_loop(config: dict[str, Any], stop_event: threading.Event) -> None:
+    interval = get_heartbeat_interval_seconds(config)
+    log("INFO", f"Agent Heartbeat gestartet: alle {interval}s.")
+
+    while not stop_event.wait(interval):
+        send_agent_status_safe(config, "online")
+
+    log("INFO", "Agent Heartbeat beendet.")
 
 
 def command_poll_loop(config: dict[str, Any], stop_event: threading.Event) -> None:
@@ -481,7 +479,7 @@ def command_poll_loop(config: dict[str, Any], stop_event: threading.Event) -> No
                 handle_backend_command(config, command)
 
         except Exception as exc:
-            log("ERROR", f"Command Polling Fehler: {exc}")
+            log("ERROR", f"Command Polling Fehler: {exc}", errorCode="command_poll_failed")
 
         stop_event.wait(5)
 
@@ -489,19 +487,38 @@ def command_poll_loop(config: dict[str, Any], stop_event: threading.Event) -> No
 
 
 def normalize_command(command: str) -> str:
-    return command.strip().lower()
+    try:
+        from voice.phrases import normalize_phrase
+
+        return normalize_phrase(command)
+    except Exception:
+        return " ".join(command.strip().lower().split())
 
 
 def main() -> None:
     config = load_config()
-    wake_words = config.get("wakeWords", [])
+
+    try:
+        from voice.controller import log_voice_status
+
+        log_voice_status(config, log)
+    except Exception as exc:
+        log("ERROR", f"Voice-Status konnte nicht initialisiert werden: {exc}")
+
+    try:
+        from voice.phrases import get_wake_words
+
+        wake_words = get_wake_words(config)
+    except Exception:
+        wake_words = config.get("wakeWords", [])
+
 
     stop_event = threading.Event()
 
     log("INFO", "JARVIS Local Client gestartet.")
-    log("INFO", "Textmodus aktiv. Voice kommt in einer späteren Phase.")
-    log("INFO", 'Teste mit: guten morgen jarvis')
-    log("INFO", 'Beenden mit: exit')
+    log("INFO", "Textmodus aktiv. Voice kommt in einer spÃ¤teren Phase.")
+    log("INFO", "Teste mit: guten morgen jarvis")
+    log("INFO", "Beenden mit: exit")
 
     send_agent_status_safe(config, "online")
 
@@ -521,7 +538,7 @@ def main() -> None:
             stop_agent=request_stop,
         )
     except Exception as exc:
-        log("ERROR", f"Lokale Agent-API konnte nicht gestartet werden: {exc}")
+        log("ERROR", f"Lokale Agent-API konnte nicht gestartet werden: {exc}", errorCode="local_api_start_failed")
 
     polling_thread = threading.Thread(
         target=command_poll_loop,
@@ -529,6 +546,13 @@ def main() -> None:
         daemon=True,
     )
     polling_thread.start()
+
+    heartbeat_thread = threading.Thread(
+        target=heartbeat_loop,
+        args=(config, stop_event),
+        daemon=True,
+    )
+    heartbeat_thread.start()
 
     while not stop_event.is_set():
         try:
@@ -540,10 +564,10 @@ def main() -> None:
                 log("INFO", "JARVIS Local Client wird beendet.")
                 break
 
-            if command == "jarvis, stopp":
+            if command in ["jarvis, stopp", "jarvis, abbrechen", "jarvis, beenden"]:
                 send_agent_status_safe(config, "stopped")
                 stop_event.set()
-                log("WARN", "Not-Aus ausgelöst.")
+                log("WARN", "Not-Aus ausgelÃ¶st.")
                 break
 
             if command in wake_words:
@@ -553,7 +577,7 @@ def main() -> None:
                     log("INFO", "JARVIS ist aktiv.")
                 continue
 
-            log("WARN", f"Unbekannter Befehl: {command}")
+            log("WARN", f"Unbekannter Befehl: {command}", errorCode="unknown_local_command")
 
         except KeyboardInterrupt:
             send_agent_status_safe(config, "interrupted")
