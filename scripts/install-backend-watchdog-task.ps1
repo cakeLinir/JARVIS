@@ -18,6 +18,10 @@ function Write-Ok([string]$Message) {
     Write-Host "[OK] $Message" -ForegroundColor Green
 }
 
+function Write-Info([string]$Message) {
+    Write-Host "[INFO] $Message" -ForegroundColor Cyan
+}
+
 $repoRootResolved = (Resolve-Path $RepoRoot).Path
 $watchdogScript = Join-Path $repoRootResolved "scripts\backend-watchdog.ps1"
 
@@ -45,9 +49,14 @@ $action = New-ScheduledTaskAction `
     -Argument ($args -join " ") `
     -WorkingDirectory $repoRootResolved
 
-$trigger = New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(1)
-$trigger.Repetition.Interval = "PT${EveryMinutes}M"
-$trigger.Repetition.Duration = "P3650D"
+# Wichtig:
+# Nicht nachträglich $trigger.Repetition.Interval setzen.
+# Auf manchen Windows/PowerShell-Versionen ist diese Eigenschaft nicht setzbar.
+$trigger = New-ScheduledTaskTrigger `
+    -Once `
+    -At (Get-Date).AddMinutes(1) `
+    -RepetitionInterval (New-TimeSpan -Minutes $EveryMinutes) `
+    -RepetitionDuration (New-TimeSpan -Days 3650)
 
 $settings = New-ScheduledTaskSettingsSet `
     -ExecutionTimeLimit (New-TimeSpan -Minutes 3) `
@@ -68,5 +77,13 @@ $task = New-ScheduledTask `
     -Principal $principal `
     -Description "Checks JARVIS backend health and restarts it when unhealthy."
 
+Write-Info "Registriere Watchdog Scheduled Task: $TaskPath$TaskName"
 Register-ScheduledTask -TaskName $TaskName -TaskPath $TaskPath -InputObject $task -Force | Out-Null
+
 Write-Ok "Watchdog Scheduled Task registriert: $TaskPath$TaskName"
+Write-Host ""
+Write-Host "Manuell starten:" -ForegroundColor Cyan
+Write-Host "  Start-ScheduledTask -TaskPath `"$TaskPath`" -TaskName `"$TaskName`""
+Write-Host ""
+Write-Host "Status prüfen:" -ForegroundColor Cyan
+Write-Host "  Get-ScheduledTask -TaskPath `"$TaskPath`" -TaskName `"$TaskName`""
