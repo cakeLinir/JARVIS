@@ -78,8 +78,26 @@ function Test-SecretConfigured([hashtable]$EnvMap, [string]$Key) {
 function Test-GitTracked([string]$RelativePath) {
     Push-Location $RepoRoot
     try {
-        & git ls-files --error-unmatch -- $RelativePath *> $null
-        return ($LASTEXITCODE -eq 0)
+        # Kein --error-unmatch verwenden:
+        # Nicht getrackte Dateien sollen KEIN PowerShell-/Git-Fehler sein.
+        $tracked = & git ls-files -- $RelativePath 2>$null
+
+        if ($LASTEXITCODE -ne 0) {
+            return $false
+        }
+
+        if (-not $tracked) {
+            return $false
+        }
+
+        $normalizedNeedle = $RelativePath.Replace("\", "/")
+        foreach ($item in $tracked) {
+            if ($item.Replace("\", "/") -eq $normalizedNeedle) {
+                return $true
+            }
+        }
+
+        return $false
     }
     finally {
         Pop-Location
