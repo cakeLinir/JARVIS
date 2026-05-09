@@ -2,11 +2,19 @@
 
 ## Ziel
 
-Patch 011 ergänzt einfache Prozessverwaltung für das JARVIS Backend auf einem Windows-VPS.
+Das JARVIS Backend läuft auf dem Windows-VPS lokal auf:
 
-Es wird noch kein Windows-Service eingerichtet. Die Skripte starten und stoppen den Backend-Prozess kontrolliert über Node.js.
+```text
+http://127.0.0.1:8181
+```
 
-## Skripte
+Caddy stellt es öffentlich über HTTPS bereit:
+
+```text
+https://jarvis.hundekuchenlive.de
+```
+
+## Manuelle Prozessverwaltung
 
 | Skript | Zweck |
 |---|---|
@@ -16,46 +24,52 @@ Es wird noch kein Windows-Service eingerichtet. Die Skripte starten und stoppen 
 | `scripts/backend-status.ps1` | PID und Health prüfen |
 | `scripts/backend-health.ps1` | `/api/health` prüfen |
 
-## Start
+## Scheduled Task Autostart
+
+Patch 016 ergänzt einen Scheduled Task für den Windows-VPS.
+
+### Installieren
+
+Standard: Start bei Benutzer-Login.
 
 ```powershell
-cd C:\Pfad\zum\JARVIS
-.\scripts\backend-start.ps1
+cd C:\Bots\JARVIS
+.\scripts\install-backend-task.ps1
 ```
 
-Mit Build vor Start:
+Start bei Systemstart:
 
 ```powershell
-.\scripts\backend-start.ps1 -Build
+.\scripts\install-backend-task.ps1 -AtStartup
 ```
 
-## Stop
+Expliziter Benutzer:
 
 ```powershell
-.\scripts\backend-stop.ps1
+.\scripts\install-backend-task.ps1 -AtLogon -User "Administrator"
 ```
 
-Falls nötig:
+### Status prüfen
 
 ```powershell
-.\scripts\backend-stop.ps1 -Force
+.\scripts\backend-task-status.ps1
 ```
 
-## Restart
+### Entfernen
 
 ```powershell
-.\scripts\backend-restart.ps1 -Build
+.\scripts\uninstall-backend-task.ps1
 ```
 
-## Status
+### Manuell starten
 
 ```powershell
-.\scripts\backend-status.ps1
+Start-ScheduledTask -TaskPath "\JARVIS\" -TaskName "JARVIS Backend"
 ```
 
 ## Logs
 
-Logs werden geschrieben nach:
+Backend-Logs:
 
 ```text
 logs/backend/
@@ -67,42 +81,10 @@ PID-Datei:
 backend/.runtime/jarvis-backend.pid
 ```
 
-Diese Dateien werden nicht committed.
-
-## Healthcheck
-
-```powershell
-.\scripts\backend-health.ps1
-```
-
-Standard-URL:
-
-```text
-http://127.0.0.1:8181/api/health
-```
-
-## Voraussetzungen
-
-- Node.js im PATH
-- npm im PATH
-- `backend/.env` mit echten Werten
-- `npm run build` erfolgreich
-- Port `8181` verfügbar
-
 ## Sicherheitsregeln
 
-- Die Skripte schreiben keine Secrets.
-- Die Skripte geben keine `.env`-Werte aus.
-- Backend läuft auf Port `8181`.
-- Externer Zugriff muss über Firewall/Reverse Proxy/HTTPS separat abgesichert werden.
-- Diese Skripte ersetzen noch keinen gehärteten Windows-Service.
-
-## Späterer Ausbau
-
-Mögliche nächste Schritte:
-
-- Windows Scheduled Task für Backend-Autostart
-- NSSM-Service oder nativer Windows-Service-Wrapper
-- Log-Rotation
-- Health-basiertes Restart-Skript
-- Reverse Proxy mit HTTPS
+- Backend bindet mit Caddy-Setup nur auf `127.0.0.1`.
+- Öffentlich läuft Zugriff über HTTPS/Caddy.
+- Skripte geben keine `.env`-Werte aus.
+- Scheduled Task ruft nur `scripts/backend-start.ps1` auf.
+- Keine Secrets im Task selbst.

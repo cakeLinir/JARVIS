@@ -217,16 +217,24 @@ function dashboardHtml(sessionLabel: string) {
   <title>JARVIS Dashboard</title>
   <style>
     :root { color-scheme: dark; font-family: Segoe UI, system-ui, sans-serif; }
-    body { margin: 0; background: #0d1117; color: #e6edf3; }
-    header { padding: 24px; border-bottom: 1px solid #30363d; background: #161b22; }
-    main { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); padding: 24px; }
-    section { border: 1px solid #30363d; border-radius: 12px; padding: 16px; background: #161b22; }
+    body { margin: 0; background: #0d1117; color: #e6edf3; font-size: 15px; }
+    header { padding: 24px max(24px, calc((100vw - 1680px) / 2)); border-bottom: 1px solid #30363d; background: #161b22; position: sticky; top: 0; z-index: 5; }
+    header h1 { margin: 0 0 12px; font-size: clamp(28px, 3vw, 44px); }
+    main { width: min(1680px, calc(100vw - 32px)); margin: 0 auto; display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(min(100%, 520px), 1fr)); padding: 24px 0 48px; align-items: start; }
+    section { border: 1px solid #30363d; border-radius: 12px; padding: 16px; background: #161b22; min-height: 220px; }
+    section h2 { margin-top: 0; font-size: 18px; }
     input, button { padding: 10px 12px; border-radius: 8px; border: 1px solid #30363d; background: #0d1117; color: #e6edf3; }
     button { cursor: pointer; background: #238636; border-color: #238636; font-weight: 600; }
     button.secondary { background: #21262d; border-color: #30363d; }
-    pre { white-space: pre-wrap; overflow-wrap: anywhere; background: #0d1117; padding: 12px; border-radius: 8px; border: 1px solid #30363d; }
+    pre { white-space: pre-wrap; overflow: auto; overflow-wrap: anywhere; background: #0d1117; padding: 12px; border-radius: 8px; border: 1px solid #30363d; max-height: 520px; min-height: 80px; font-size: 13px; line-height: 1.45; }
     .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
     .muted { color: #8b949e; }
+    @media (max-width: 700px) {
+      body { font-size: 14px; }
+      header { padding: 16px; }
+      main { width: calc(100vw - 20px); padding-top: 12px; }
+      section { padding: 12px; }
+    }
   </style>
 </head>
 <body>
