@@ -36,6 +36,25 @@ function Test-PathRole([string]$RelativePath, [string]$Role, [bool]$Required = $
     }
 }
 
+function Test-GitAvailable() {
+    try {
+        git -C $RepoRoot rev-parse --is-inside-work-tree *> $null
+        return $LASTEXITCODE -eq 0
+    }
+    catch {
+        return $false
+    }
+}
+
+function Test-GitTracked([string]$RelativePath) {
+    if (-not (Test-GitAvailable)) {
+        return $false
+    }
+
+    git -C $RepoRoot ls-files --error-unmatch -- $RelativePath *> $null
+    return $LASTEXITCODE -eq 0
+}
+
 Write-Host "=== JARVIS VPS Layout Check ===" -ForegroundColor Cyan
 Write-Host "RepoRoot: $RepoRoot"
 
@@ -54,17 +73,29 @@ Test-PathRole "scripts\vps-update-backend.ps1" "VPS Update-Skript" $true
 Test-PathRole "docs" "Docs-Ordner" $true
 Test-PathRole "desktop-agent" "Desktop-Agent Quellcode" $false
 
-$forbiddenCommitted = @(
-    "backend\.env.example.local",
-    "desktop-agent\config.local.json",
+Write-Host ""
+Write-Host "--- Secret-/Local-Tracking Check ---" -ForegroundColor Cyan
+
+$forbiddenTracked = @(
+    "backend/.env",
+    "backend/.env.local",
+    "desktop-agent/config.local.json",
     ".env",
     ".env.local"
 )
 
-foreach ($relative in $forbiddenCommitted) {
-    $path = Join-Path $RepoRoot $relative
+foreach ($relative in $forbiddenTracked) {
+    $path = Join-Path $RepoRoot ($relative -replace "/", "\")
+    if (Test-GitTracked $relative) {
+        Write-ErrorStatus "Secret-/Local-Datei ist von Git getrackt: $relative"
+        continue
+    }
+
     if (Test-Path $path) {
-        Write-Warn "Lokale/Secret-Datei existiert im Arbeitsbaum: $relative. Nicht committen."
+        Write-Ok "Lokale Datei vorhanden, aber nicht getrackt: $relative"
+    }
+    else {
+        Write-Ok "Nicht vorhanden/nicht getrackt: $relative"
     }
 }
 

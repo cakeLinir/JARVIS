@@ -3,7 +3,6 @@
 *.env
 !.env.example
 config.local.json
-config.json
 *.local.json
 
 # Node.js
@@ -43,3 +42,6 @@ logs/
 *.bak
 backend/data/
 !backend/data/.gitkeep
+# JARVIS patch transfer files
+jarvis_patch_*.ps1
+jarvis_patch_*.diff
