@@ -1,4 +1,4 @@
-﻿# JARVIS Preflight
+# JARVIS Preflight
 
 ## Ziel
 
@@ -92,3 +92,16 @@ Prüft:
 - Preflight führt keine Windows-Aktionen aus.
 - Preflight startet kein Backend dauerhaft.
 - Preflight startet keinen Agent dauerhaft.
+
+## Patch 011.1: Runtime-Dateien
+
+`backend/data/` enthält Runtime-Dateien wie:
+
+```text
+commands.json
+audit-log.jsonl
+```
+
+Diese Dateien werden nicht committed. Damit der Ordner trotzdem auf dem VPS vorhanden bleibt, wird `backend/data/.gitkeep` verwendet.
+
+Falls `preflight-vps.ps1` den Ordner nicht findet, erstellt es ihn lokal. Danach sollte `.gitkeep` im lokalen Repo committed werden.

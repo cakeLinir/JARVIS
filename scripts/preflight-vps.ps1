@@ -75,23 +75,14 @@ function Test-SecretConfigured([hashtable]$EnvMap, [string]$Key) {
     Write-Ok "$Key ist gesetzt."
 }
 
-function Test-RequiredPath([string]$RelativePath) {
-    $path = Join-Path $RepoRoot $RelativePath
-    if (Test-Path $path) {
-        Write-Ok "Gefunden: $RelativePath"
+function Test-GitTracked([string]$RelativePath) {
+    Push-Location $RepoRoot
+    try {
+        & git ls-files --error-unmatch -- $RelativePath *> $null
+        return ($LASTEXITCODE -eq 0)
     }
-    else {
-        Write-ErrorStatus "Fehlt: $RelativePath"
-    }
-}
-
-function Test-OptionalPath([string]$RelativePath, [string]$Reason) {
-    $path = Join-Path $RepoRoot $RelativePath
-    if (Test-Path $path) {
-        Write-Ok "Optional vorhanden: $RelativePath"
-    }
-    else {
-        Write-Warn "Optional fehlt: $RelativePath ($Reason)"
+    finally {
+        Pop-Location
     }
 }
 
@@ -104,13 +95,35 @@ if (-not (Test-Path $RepoRoot)) {
     exit 2
 }
 
-Test-RequiredPath "backend\package.json"
-Test-RequiredPath "backend\src\server.ts"
-Test-RequiredPath "backend\.env"
-Test-RequiredPath "docs"
+$requiredPaths = @(
+    "backend\package.json",
+    "backend\src\server.ts",
+    "backend\.env",
+    "docs"
+)
 
-# Der Desktop-Agent ist auf dem VPS nicht erforderlich. Der VPS betreibt primär backend/.
-Test-OptionalPath "desktop-agent\src\main.py" "auf dem VPS nur erforderlich, wenn der lokale Agent dort bewusst mit deployed wird"
+foreach ($relative in $requiredPaths) {
+    $path = Join-Path $RepoRoot $relative
+    if (Test-Path $path) {
+        Write-Ok "Gefunden: $relative"
+    }
+    else {
+        if ($relative -eq "backend\.env") {
+            Write-ConfigRequired "backend\.env fehlt auf dem VPS."
+        }
+        else {
+            Write-ErrorStatus "Fehlt: $relative"
+        }
+    }
+}
+
+$desktopAgentPath = Join-Path $RepoRoot "desktop-agent\src\main.py"
+if (Test-Path $desktopAgentPath) {
+    Write-Ok "Gefunden: desktop-agent\src\main.py"
+}
+else {
+    Write-Warn "Optional fehlt: desktop-agent\src\main.py (auf dem VPS nur erforderlich, wenn der lokale Agent dort bewusst mit deployed wird)"
+}
 
 Write-Host ""
 Write-Host "--- Tooling ---" -ForegroundColor Cyan
@@ -136,35 +149,55 @@ elseif (Test-CommandExists "python") {
     Write-Ok "python verfügbar: $(& python --version)"
 }
 else {
-    Write-Warn "Python wurde nicht gefunden. Für reinen VPS-Backend-Betrieb ist das nicht blockierend."
+    Write-Warn "Python wurde nicht gefunden. Für reinen VPS-Backend-Betrieb ist das nur relevant, wenn Agent/Bot dort geprüft werden sollen."
 }
 
 Write-Host ""
 Write-Host "--- Git Runtime-Dateien ---" -ForegroundColor Cyan
 
-if (Test-CommandExists "git") {
-    Push-Location $RepoRoot
-    try {
-        $trackedRuntime = & git ls-files "backend/data/commands.json" "backend/data/audit-log.jsonl" 2>$null
-        if ($trackedRuntime) {
-            Write-Warn "Runtime-Dateien sind noch von Git getrackt. Nach Patch 011.1 lokal 'git rm --cached backend/data/commands.json' verwenden, falls die Datei im Repo noch getrackt ist."
-        }
-
-        $dirtyRuntime = & git status --porcelain -- "backend/data/commands.json" "backend/data/audit-log.jsonl" 2>$null
-        if ($dirtyRuntime) {
-            Write-Warn "Runtime-State unter backend/data ist lokal verändert. Das kann git pull blockieren."
-            $dirtyRuntime | ForEach-Object { Write-Host "  $_" -ForegroundColor Yellow }
-        }
-        else {
-            Write-Ok "Keine geänderten alten Runtime-Dateien unter backend/data erkannt."
-        }
-    }
-    finally {
-        Pop-Location
-    }
+$backendDataDir = Join-Path $RepoRoot "backend\data"
+if (-not (Test-Path $backendDataDir)) {
+    New-Item -ItemType Directory -Path $backendDataDir -Force | Out-Null
+    Write-Ok "Runtime-Ordner erstellt: backend\data"
 }
 else {
-    Write-Warn "git ist nicht im PATH. Git-Runtime-Prüfung übersprungen."
+    Write-Ok "Runtime-Ordner vorhanden: backend\data"
+}
+
+$gitkeepPath = Join-Path $backendDataDir ".gitkeep"
+if (-not (Test-Path $gitkeepPath)) {
+    New-Item -ItemType File -Path $gitkeepPath -Force | Out-Null
+    Write-Ok "Platzhalter erstellt: backend\data\.gitkeep"
+}
+else {
+    Write-Ok "Platzhalter vorhanden: backend\data\.gitkeep"
+}
+
+$runtimePaths = @(
+    "backend/data/commands.json",
+    "backend/data/audit-log.jsonl"
+)
+
+foreach ($relative in $runtimePaths) {
+    $path = Join-Path $RepoRoot ($relative -replace "/", "\")
+    $tracked = Test-GitTracked $relative
+
+    if ($tracked) {
+        Write-Warn "$relative ist von Git getrackt. Runtime-Dateien sollten nicht committed werden."
+    }
+    elseif (Test-Path $path) {
+        Write-Ok "$relative existiert lokal und ist nicht getrackt."
+    }
+    else {
+        Write-Ok "$relative existiert noch nicht und ist nicht getrackt."
+    }
+}
+
+if (Test-GitTracked "backend/data/.gitkeep") {
+    Write-Ok "backend/data/.gitkeep ist getrackt."
+}
+else {
+    Write-Warn "backend/data/.gitkeep ist noch nicht getrackt. Lokal committen/pushen, damit backend/data/ auf dem VPS vorhanden bleibt."
 }
 
 Write-Host ""
