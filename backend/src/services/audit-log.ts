@@ -44,7 +44,7 @@ export type AuditEventInput = Omit<AuditEvent, "id" | "timestamp"> & {
   timestamp?: string;
 };
 
-const dataDir = path.resolve(process.cwd(), "data");
+const dataDir = path.resolve(process.cwd(), ".runtime", "data");
 const auditPath = path.join(dataDir, "audit-log.jsonl");
 
 function ensureAuditStoreExists() {

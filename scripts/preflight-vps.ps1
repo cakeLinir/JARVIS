@@ -75,6 +75,26 @@ function Test-SecretConfigured([hashtable]$EnvMap, [string]$Key) {
     Write-Ok "$Key ist gesetzt."
 }
 
+function Test-RequiredPath([string]$RelativePath) {
+    $path = Join-Path $RepoRoot $RelativePath
+    if (Test-Path $path) {
+        Write-Ok "Gefunden: $RelativePath"
+    }
+    else {
+        Write-ErrorStatus "Fehlt: $RelativePath"
+    }
+}
+
+function Test-OptionalPath([string]$RelativePath, [string]$Reason) {
+    $path = Join-Path $RepoRoot $RelativePath
+    if (Test-Path $path) {
+        Write-Ok "Optional vorhanden: $RelativePath"
+    }
+    else {
+        Write-Warn "Optional fehlt: $RelativePath ($Reason)"
+    }
+}
+
 Write-Host "=== JARVIS VPS Preflight ===" -ForegroundColor Cyan
 Write-Host "RepoRoot: $RepoRoot"
 Write-Host "ExpectedPort: $ExpectedPort"
@@ -84,28 +104,13 @@ if (-not (Test-Path $RepoRoot)) {
     exit 2
 }
 
-$requiredPaths = @(
-    "backend\package.json",
-    "backend\src\server.ts",
-    "backend\.env",
-    "desktop-agent\src\main.py",
-    "docs"
-)
+Test-RequiredPath "backend\package.json"
+Test-RequiredPath "backend\src\server.ts"
+Test-RequiredPath "backend\.env"
+Test-RequiredPath "docs"
 
-foreach ($relative in $requiredPaths) {
-    $path = Join-Path $RepoRoot $relative
-    if (Test-Path $path) {
-        Write-Ok "Gefunden: $relative"
-    }
-    else {
-        if ($relative -eq "backend\.env") {
-            Write-ConfigRequired "backend\.env fehlt auf dem VPS."
-        }
-        else {
-            Write-ErrorStatus "Fehlt: $relative"
-        }
-    }
-}
+# Der Desktop-Agent ist auf dem VPS nicht erforderlich. Der VPS betreibt primär backend/.
+Test-OptionalPath "desktop-agent\src\main.py" "auf dem VPS nur erforderlich, wenn der lokale Agent dort bewusst mit deployed wird"
 
 Write-Host ""
 Write-Host "--- Tooling ---" -ForegroundColor Cyan
@@ -131,7 +136,35 @@ elseif (Test-CommandExists "python") {
     Write-Ok "python verfügbar: $(& python --version)"
 }
 else {
-    Write-Warn "Python wurde nicht gefunden. Für reinen VPS-Backend-Betrieb ist das nur relevant, wenn Agent/Bot dort geprüft werden sollen."
+    Write-Warn "Python wurde nicht gefunden. Für reinen VPS-Backend-Betrieb ist das nicht blockierend."
+}
+
+Write-Host ""
+Write-Host "--- Git Runtime-Dateien ---" -ForegroundColor Cyan
+
+if (Test-CommandExists "git") {
+    Push-Location $RepoRoot
+    try {
+        $trackedRuntime = & git ls-files "backend/data/commands.json" "backend/data/audit-log.jsonl" 2>$null
+        if ($trackedRuntime) {
+            Write-Warn "Runtime-Dateien sind noch von Git getrackt. Nach Patch 011.1 lokal 'git rm --cached backend/data/commands.json' verwenden, falls die Datei im Repo noch getrackt ist."
+        }
+
+        $dirtyRuntime = & git status --porcelain -- "backend/data/commands.json" "backend/data/audit-log.jsonl" 2>$null
+        if ($dirtyRuntime) {
+            Write-Warn "Runtime-State unter backend/data ist lokal verändert. Das kann git pull blockieren."
+            $dirtyRuntime | ForEach-Object { Write-Host "  $_" -ForegroundColor Yellow }
+        }
+        else {
+            Write-Ok "Keine geänderten alten Runtime-Dateien unter backend/data erkannt."
+        }
+    }
+    finally {
+        Pop-Location
+    }
+}
+else {
+    Write-Warn "git ist nicht im PATH. Git-Runtime-Prüfung übersprungen."
 }
 
 Write-Host ""

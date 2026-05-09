@@ -40,7 +40,7 @@ export type JarvisCommand = {
   errorCode?: string;
 };
 
-const dataDir = path.resolve(process.cwd(), "data");
+const dataDir = path.resolve(process.cwd(), ".runtime", "data");
 const storePath = path.join(dataDir, "commands.json");
 
 let commands: JarvisCommand[] = [];

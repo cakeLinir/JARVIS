@@ -45,3 +45,6 @@ backend/data/
 # JARVIS patch transfer files
 jarvis_patch_*.ps1
 jarvis_patch_*.diff
+backend/.runtime/
+backend/data/commands.json
+backend/data/audit-log.jsonl
