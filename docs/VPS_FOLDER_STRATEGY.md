@@ -1,5 +1,35 @@
 # JARVIS VPS Ordnerstrategie
 
+## Patch 022.1 Hinweis
+
+`git sparse-checkout init --cone` akzeptiert bei `git sparse-checkout set` nur Verzeichnisse.
+
+Deshalb werden nur diese Ordner gesetzt:
+
+```text
+backend
+dashboard
+deploy
+docs
+scripts
+```
+
+Root-Dateien wie diese werden im Cone-Mode normalerweise automatisch mitgeführt:
+
+```text
+.gitignore
+README.md
+LICENSE
+```
+
+Der frühere Fehler:
+
+```text
+fatal: '.gitignore' is not a directory
+```
+
+kam daher, dass `.gitignore` eine Datei ist und fälschlich an `git sparse-checkout set` übergeben wurde.
+
 ## Ziel
 
 Der VPS soll nicht nur `backend/` ziehen. Seit der Frontend/Backend-Trennung braucht der VPS produktiv:
@@ -78,7 +108,7 @@ Das führt aus:
 - Dashboard Dependencies/Build
 - Caddy Reload
 
-## Minimaler Ablauf nach Patch 022
+## Minimaler Ablauf
 
 ```powershell
 cd C:\Bots\JARVIS

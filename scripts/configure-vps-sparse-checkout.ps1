@@ -21,39 +21,46 @@ try {
 
     $status = (& git status --porcelain)
     if ($status) {
-        Write-Warn "Working tree ist nicht sauber. Sparse-Checkout wird trotzdem konfiguriert, aber Pull kann fehlschlagen."
+        Write-Warn "Working tree ist nicht sauber. Sparse-Checkout wird konfiguriert, aber Pull kann fehlschlagen."
         Write-Host $status
     }
 
-    Write-Info "Aktiviere Sparse Checkout..."
+    Write-Info "Aktiviere Sparse Checkout im Cone-Modus..."
     & git sparse-checkout init --cone
-    if ($LASTEXITCODE -ne 0) { Fail "git sparse-checkout init fehlgeschlagen." }
+    if ($LASTEXITCODE -ne 0) {
+        Fail "git sparse-checkout init fehlgeschlagen."
+    }
 
-    $paths = @(
+    # Cone-Mode akzeptiert bei 'set' nur Verzeichnisse.
+    # Root-Dateien wie README.md, LICENSE und .gitignore werden von Git im Cone-Mode
+    # normalerweise automatisch im Arbeitsbaum behalten.
+    $directories = @(
         "backend",
         "dashboard",
         "deploy",
         "docs",
-        "scripts",
-        ".gitignore",
-        "README.md",
-        "LICENSE"
+        "scripts"
     )
 
-    Write-Info "Setze produktive VPS-Pfade:"
-    foreach ($path in $paths) {
+    Write-Info "Setze produktive VPS-Verzeichnisse:"
+    foreach ($path in $directories) {
         Write-Host "  $path"
     }
 
-    & git sparse-checkout set @paths
-    if ($LASTEXITCODE -ne 0) { Fail "git sparse-checkout set fehlgeschlagen." }
+    & git sparse-checkout set @directories
+    if ($LASTEXITCODE -ne 0) {
+        Fail "git sparse-checkout set fehlgeschlagen."
+    }
 
     Write-Ok "Sparse Checkout konfiguriert."
 
     if ($ApplyPull) {
         Write-Info "Hole aktuellen Stand vom Remote..."
         & git pull --ff-only
-        if ($LASTEXITCODE -ne 0) { Fail "git pull --ff-only fehlgeschlagen." }
+        if ($LASTEXITCODE -ne 0) {
+            Fail "git pull --ff-only fehlgeschlagen."
+        }
+
         Write-Ok "git pull erfolgreich."
     }
 
@@ -61,6 +68,7 @@ try {
     Write-Host "Prüfung:" -ForegroundColor Cyan
     Write-Host "  Test-Path .\dashboard\package.json"
     Write-Host "  Test-Path .\deploy\caddy\Caddyfile"
+    Write-Host "  Test-Path .\.gitignore"
 }
 finally {
     Pop-Location
