@@ -31,7 +31,7 @@ try {
 
 try {
     $loginUrl = "$PublicUrl/dashboard/login"
-    $response = Invoke-WebRequest -Uri $loginUrl -TimeoutSec $TimeoutSeconds -MaximumRedirection 0 -ErrorAction SilentlyContinue
+    $response = Invoke-WebRequest -Uri $loginUrl -TimeoutSec $TimeoutSeconds -MaximumRedirection 0 -UseBasicParsing -ErrorAction SilentlyContinue
     if ($response.StatusCode -ge 200 -and $response.StatusCode -lt 400) {
         Write-Ok "Dashboard Login erreichbar: $loginUrl"
     } else {
