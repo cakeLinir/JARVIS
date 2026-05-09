@@ -1,5 +1,122 @@
 from __future__ import annotations
 
+# JARVIS_PATCH_026_1: Projektanalyse-Rauschfilter.
+JARVIS_PROJECT_ANALYSIS_EXCLUDE_DIRS = {
+    ".git",
+    ".venv",
+    "node_modules",
+    "dashboard/node_modules",
+    "dashboard/dist",
+    ".jarvis-patch-backups",
+    "logs",
+    "backend/dist",
+    "backend/node_modules",
+    "__pycache__",
+}
+
+JARVIS_PROJECT_ANALYSIS_EXCLUDE_FILES = {
+    "desktop-agent/config.local.json",
+}
+
+def jarvis_is_noise_path(path_value):
+    normalized = str(path_value).replace("\\", "/").strip("/")
+    lower = normalized.lower()
+
+    for excluded in JARVIS_PROJECT_ANALYSIS_EXCLUDE_DIRS:
+        excluded_lower = excluded.lower().strip("/")
+        if lower == excluded_lower or lower.startswith(excluded_lower + "/") or ("/" + excluded_lower + "/") in ("/" + lower + "/"):
+            return True
+
+    for excluded_file in JARVIS_PROJECT_ANALYSIS_EXCLUDE_FILES:
+        if lower == excluded_file.lower():
+            return True
+
+    return False
+
+def jarvis_is_todo_noise_path(path_value):
+    normalized = str(path_value).replace("\\", "/").strip("/")
+    lower = normalized.lower()
+
+
+# JARVIS_PATCH_026_3: zentrale Log-Normalisierung und Projektanalyse-Ausgabefilter.
+JARVIS_PROJECT_LOG_SUPPRESS_PATTERNS = (
+    ".jarvis-patch-backups/",
+    "/node_modules/",
+    "/dashboard/dist/",
+    "/backend/dist/",
+    "/logs/",
+    "__pycache__/",
+    "desktop-agent/config.json:",
+    "desktop-agent/config.local.json:",
+    "desktop-agent/config.local.example.json:",
+    "docs/todo_system.md:",
+    "docs/local_agent_vps_connection.md:",
+    "docs/runtime_cleanup_analysis_noise.md:",
+    ".jarvis-patch-backups\\",
+    "docs\\todo_system.md:",
+    "docs\\runtime_cleanup_analysis_noise.md:",
+    "desktop-agent\\config.json:",
+    "desktop-agent\\config.local.json:",
+    "desktop-agent\\config.local.example.json:",
+)
+
+def jarvis_normalize_log_text(message_value):
+    message_text = str(message_value)
+    replacements = {
+        "ausgefÃ¼hrt": "ausgeführt",
+        "geÃ¶ffnet": "geöffnet",
+        "spÃ¤ter": "später",
+        "fÃ¼r": "für",
+        "prÃ¼fen": "prüfen",
+        "Ã¼": "ü",
+        "Ã¶": "ö",
+        "Ã¤": "ä",
+        "ÃŸ": "ß",
+    }
+
+    for bad, good in replacements.items():
+        message_text = message_text.replace(bad, good)
+
+    return message_text
+
+def jarvis_normalize_log_event(level_value, message_value):
+    level_text = str(level_value)
+    message_text = jarvis_normalize_log_text(message_value)
+
+    if level_text.upper() == "ERROR" and "App-Start fehlgeschlagen:" in message_text and "App deaktiviert" in message_text:
+        message_text = message_text.replace("App-Start fehlgeschlagen:", "App übersprungen:")
+        if " | App deaktiviert:" in message_text:
+            message_text = message_text.split(" | App deaktiviert:", 1)[0] + " | App deaktiviert"
+        level_text = "WARN"
+
+    return level_text, message_text
+
+def jarvis_should_suppress_log(level_value, message_value):
+    level_text = str(level_value).upper()
+    message_text = str(message_value).replace("\\", "/").lower()
+
+    if level_text != "PROJECT":
+        return False
+
+    for pattern in JARVIS_PROJECT_LOG_SUPPRESS_PATTERNS:
+        if pattern in message_text:
+            return True
+
+    return False
+
+
+    if jarvis_is_noise_path(normalized):
+        return True
+
+    if lower.startswith("docs/") and "todo" in lower:
+        return True
+
+    if lower.endswith("config.json") or lower.endswith("config.local.json") or lower.endswith("config.local.example.json"):
+        return True
+
+    return False
+
+
 import json
 import os
 import sys
@@ -13,7 +130,7 @@ from typing import Any
 def configure_console_encoding() -> None:
     """
     Force UTF-8 for Windows console and Python streams.
-    Prevents mojibake such as spÃ¤teren/späteren mismatch in PowerShell output.
+    Prevents mojibake such as späteren/späteren mismatch in PowerShell output.
     """
     if os.name != "nt":
         return
@@ -57,6 +174,13 @@ MORNING_ROUTINE_LOCK = threading.Lock()
 
 
 def log(level: str, message: str, **fields: Any) -> None:
+    # JARVIS_PATCH_026_4_LOG_HOOK
+    try:
+        level, message = jarvis_normalize_log_event(level, message)
+        if jarvis_should_suppress_log(level, message):
+            return
+    except Exception:
+        pass
     LOG_DIR.mkdir(parents=True, exist_ok=True)
 
     safe_message = message.replace(os.getenv("JARVIS_AGENT_TOKEN", ""), "***") if os.getenv("JARVIS_AGENT_TOKEN") else message
@@ -184,7 +308,7 @@ def arrange_windows() -> None:
         arrange_morning_windows(log)
 
     except ImportError as exc:
-        log("ERROR", f"Fenster-Manager AbhÃ¤ngigkeit fehlt: {exc}", errorCode="window_manager_dependency_missing")
+        log("ERROR", f"Fenster-Manager Abhängigkeit fehlt: {exc}", errorCode="window_manager_dependency_missing")
         log("ERROR", "Installiere mit: py -3 -m pip install pywin32 psutil")
 
     except Exception as exc:
@@ -260,7 +384,7 @@ def send_morning_log_safe(
 
 def run_morning_routine(config: dict[str, Any]) -> None:
     if not MORNING_ROUTINE_LOCK.acquire(blocking=False):
-        log("WARN", "Morgenroutine lÃ¤uft bereits. Neuer Start wurde blockiert.", errorCode="morning_routine_already_running")
+        log("WARN", "Morgenroutine läuft bereits. Neuer Start wurde blockiert.", errorCode="morning_routine_already_running")
         return
 
     try:
@@ -271,7 +395,7 @@ def run_morning_routine(config: dict[str, Any]) -> None:
 
         apps = config.get("apps", {})
         if not isinstance(apps, dict):
-            log("ERROR", f"{CONFIG_REQUIRED_MARKER}: apps-Konfiguration ist ungÃ¼ltig.", errorCode="apps_config_invalid")
+            log("ERROR", f"{CONFIG_REQUIRED_MARKER}: apps-Konfiguration ist ungültig.", errorCode="apps_config_invalid")
             apps = {}
 
         for app_name in ["obs", "discord", "spotify", "whatsapp", "vscode"]:
@@ -288,7 +412,10 @@ def run_morning_routine(config: dict[str, Any]) -> None:
                 started_apps.append(app_name)
             else:
                 failed_apps.append(app_name)
-                log("ERROR", f"App-Start fehlgeschlagen: {app_name} | {result.message}", errorCode=result.error_code or "app_start_failed", app=app_name)
+                app_log_level, app_log_message = jarvis_normalize_log_event(
+                    "ERROR", f"App-Start fehlgeschlagen: {app_name} | {result.message}"
+                )
+                log(app_log_level, app_log_message, errorCode=result.error_code or "app_start_failed", app=app_name)
 
         todo_opened = open_todo(config)
 
@@ -304,7 +431,7 @@ def run_morning_routine(config: dict[str, Any]) -> None:
             for item in todos:
                 log("TODO", item)
         else:
-            log("INFO", "Keine offenen TODOs fÃ¼r heute gefunden.")
+            log("INFO", "Keine offenen TODOs für heute gefunden.")
 
         project_summary = analyze_current_project(config)
 
@@ -367,7 +494,7 @@ def handle_backend_command(config: dict[str, Any], command: dict[str, Any]) -> N
                 config=config,
                 command_id=command_id,
                 status="completed",
-                result="Morning Routine wurde lokal ausgefÃ¼hrt.",
+                result="Morning Routine wurde lokal ausgeführt.",
                 details={"type": command_type, "correlationId": correlation_id},
             )
             return
@@ -377,7 +504,7 @@ def handle_backend_command(config: dict[str, Any], command: dict[str, Any]) -> N
                 config=config,
                 command_id=command_id,
                 status="completed",
-                result="Dev-News werden aktuell Ã¼ber Backend /api/news/dev bereitgestellt.",
+                result="Dev-News werden aktuell über Backend /api/news/dev bereitgestellt.",
                 details={"type": command_type, "correlationId": correlation_id},
             )
             return
@@ -516,7 +643,7 @@ def main() -> None:
     stop_event = threading.Event()
 
     log("INFO", "JARVIS Local Client gestartet.")
-    log("INFO", "Textmodus aktiv. Voice kommt in einer spÃ¤teren Phase.")
+    log("INFO", "Textmodus aktiv. Voice kommt in einer späteren Phase.")
     log("INFO", "Teste mit: guten morgen jarvis")
     log("INFO", "Beenden mit: exit")
 
@@ -567,7 +694,7 @@ def main() -> None:
             if command in ["jarvis, stopp", "jarvis, abbrechen", "jarvis, beenden"]:
                 send_agent_status_safe(config, "stopped")
                 stop_event.set()
-                log("WARN", "Not-Aus ausgelÃ¶st.")
+                log("WARN", "Not-Aus ausgelöst.")
                 break
 
             if command in wake_words:

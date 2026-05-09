@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import os
 import subprocess
@@ -63,10 +63,10 @@ def open_uri(uri: str | None, log: LogFn) -> LaunchResult:
 
     try:
         detached_popen(["cmd", "/c", "start", "", uri])
-        log("OK", f"URI geÃ¶ffnet: {scheme}:")
-        return LaunchResult(True, None, f"URI geÃ¶ffnet: {scheme}:")
+        log("OK", f"URI geöffnet: {scheme}:")
+        return LaunchResult(True, None, f"URI geöffnet: {scheme}:")
     except Exception as exc:
-        return LaunchResult(False, "uri_open_failed", f"URI konnte nicht geÃ¶ffnet werden: {scheme}: | {exc}")
+        return LaunchResult(False, "uri_open_failed", f"URI konnte nicht geöffnet werden: {scheme}: | {exc}")
 
 
 def start_path(path_value: str | None, args: list[str] | None, working_dir: str | None, log: LogFn) -> LaunchResult:
@@ -80,7 +80,7 @@ def start_path(path_value: str | None, args: list[str] | None, working_dir: str 
 
     working_dir_ok, working_dir_error = _validate_working_dir(working_dir)
     if not working_dir_ok:
-        return LaunchResult(False, "working_dir_invalid", working_dir_error or "workingDir ist ungÃ¼ltig.")
+        return LaunchResult(False, "working_dir_invalid", working_dir_error or "workingDir ist ungültig.")
 
     safe_args = args if isinstance(args, list) else []
 
@@ -144,4 +144,4 @@ def start_app(name: str, app_config: dict[str, Any], log: LogFn) -> LaunchResult
     if mode == "command":
         return start_command(app_config, log)
 
-    return LaunchResult(False, "unknown_start_mode", f"{CONFIG_REQUIRED_MARKER}: Unbekannter Startmodus fÃ¼r {name}: {mode}")
+    return LaunchResult(False, "unknown_start_mode", f"{CONFIG_REQUIRED_MARKER}: Unbekannter Startmodus für {name}: {mode}")

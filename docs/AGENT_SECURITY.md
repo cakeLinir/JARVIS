@@ -1,19 +1,19 @@
-﻿# JARVIS Agent Security
+# JARVIS Agent Security
 
 ## Ziel
 
-Der lokale Windows-Agent fÃ¼hrt nur lokale Aktionen aus, die explizit in der lokalen Konfiguration erlaubt sind.
+Der lokale Windows-Agent führt nur lokale Aktionen aus, die explizit in der lokalen Konfiguration erlaubt sind.
 
 ## Patch 004
 
-Dieser Patch hÃ¤rtet den Desktop-Agent in folgenden Bereichen:
+Dieser Patch härtet den Desktop-Agent in folgenden Bereichen:
 
-- zentrale PrÃ¼fung von Platzhalterwerten
+- zentrale Prüfung von Platzhalterwerten
 - klare Meldungen mit `KONFIGURATION_ERFORDERLICH`
 - lokale API startet nur mit echtem Token
 - lokale API bindet nur auf `127.0.0.1` oder `localhost`
-- URI-Start nur fÃ¼r erlaubte Schemes
-- `command`-Startmodus ist standardmÃ¤ÃŸig blockiert
+- URI-Start nur für erlaubte Schemes
+- `command`-Startmodus ist standardmäßig blockiert
 - strukturierte JSONL-Agent-Logs
 - Backend-Completion kann `errorCode` senden
 
@@ -28,7 +28,7 @@ Dieser Patch hÃ¤rtet den Desktop-Agent in folgenden Bereichen:
 
 ## Lokale Konfiguration
 
-Echte Werte gehÃ¶ren in:
+Echte Werte gehören in:
 
 ```text
 desktop-agent/config.local.json
@@ -52,4 +52,4 @@ logs/desktop-agent.log
 logs/desktop-agent.jsonl
 ```
 
-Logs dÃ¼rfen keine Secrets enthalten.
+Logs dürfen keine Secrets enthalten.

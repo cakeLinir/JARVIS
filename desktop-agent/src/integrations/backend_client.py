@@ -31,11 +31,11 @@ def request_json(
 quiet_success: bool = False,
 ) -> dict[str, Any] | None:
     if not is_configured_url(backend_url):
-        log("WARN", "Backend-URL fehlt oder ist ein Platzhalter. Backend-Anfrage Ã¼bersprungen.")
+        log("WARN", "Backend-URL fehlt oder ist ein Platzhalter. Backend-Anfrage übersprungen.")
         return None
 
     if not is_configured_secret(agent_token):
-        log("WARN", "Agent-Token fehlt oder ist ein Platzhalter. Backend-Anfrage Ã¼bersprungen.")
+        log("WARN", "Agent-Token fehlt oder ist ein Platzhalter. Backend-Anfrage übersprungen.")
         return None
 
     url = backend_url.rstrip("/") + endpoint

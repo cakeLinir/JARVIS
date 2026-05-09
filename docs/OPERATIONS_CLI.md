@@ -196,3 +196,11 @@ Wenn ein Prozess Port `8765` besitzt, aber nicht eindeutig nach JARVIS Agent aus
 ```powershell
 .\scripts\stop-local-agent.ps1 -ForceByPort
 ```
+
+## Patch 026.1
+
+Runtime Cleanup und Projektanalyse-Rauschfilter sind dokumentiert in:
+
+```text
+docs/RUNTIME_CLEANUP_ANALYSIS_NOISE.md
+```

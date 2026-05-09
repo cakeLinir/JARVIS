@@ -12,7 +12,7 @@ Der aktuelle MVP schreibt Audit-Events als JSON Lines in:
 backend/data/audit-log.jsonl
 ```
 
-Dieser Speicher ist bewusst einfach gehalten. FÃ¼r produktionsnahen Betrieb soll er spÃ¤ter durch SQLite oder PostgreSQL ersetzt werden.
+Dieser Speicher ist bewusst einfach gehalten. Für produktionsnahen Betrieb soll er später durch SQLite oder PostgreSQL ersetzt werden.
 
 ## Event-Felder
 
@@ -37,14 +37,14 @@ details
 - Keine Tokens im Audit-Log.
 - Keine OpenAI-Rohprompts im Audit-Log.
 - Keine sensiblen Rohdaten im Audit-Log.
-- Command-ID und Correlation-ID mÃ¼ssen reichen, um Backend-, Agent- und Bot-Ereignisse zusammenzufÃ¼hren.
+- Command-ID und Correlation-ID müssen reichen, um Backend-, Agent- und Bot-Ereignisse zusammenzuführen.
 
 ## Aktuelle Events
 
 | Action | Bedeutung |
 |---|---|
 | `command.create` | Backend hat einen Command angenommen oder abgelehnt. |
-| `command.claim` | Agent hat einen Command Ã¼bernommen. |
+| `command.claim` | Agent hat einen Command übernommen. |
 | `command.complete` | Agent hat einen Command abgeschlossen, abgelehnt oder als fehlgeschlagen gemeldet. |
 | `command.claim_expired` | Ein geclaimter Command wurde wegen Timeout erneut freigegeben. |
 
@@ -53,12 +53,12 @@ details
 - JSONL ist kein transaktionaler Speicher.
 - Keine Rotation implementiert.
 - Keine manipulationssichere Signatur implementiert.
-- Keine BenutzeroberflÃ¤che auÃŸer Dashboard-Rohansicht implementiert.
+- Keine Benutzeroberfläche außer Dashboard-Rohansicht implementiert.
 
-## NÃ¤chster Ausbau
+## Nächster Ausbau
 
 1. SQLite-Tabelle `audit_events`.
 2. strukturierte Query-Endpunkte.
 3. Dashboard-Filter nach Command-ID und Correlation-ID.
 4. Log-Rotation und Retention.
-5. optional Hash-Verkettung gegen nachtrÃ¤gliche Manipulation.
+5. optional Hash-Verkettung gegen nachträgliche Manipulation.

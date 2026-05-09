@@ -1,4 +1,5 @@
 ﻿# TODO für heute
 
-- [ ] JARVIS Backend starten
-- [ ] Agent testen
+* \[x] JARVIS Backend starten
+* \[ ] Agent testen
+

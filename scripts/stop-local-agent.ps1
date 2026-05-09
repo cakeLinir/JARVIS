@@ -10,21 +10,20 @@ $ErrorActionPreference = "Stop"
 function Write-Ok([string]$Message) { Write-Host "[OK] $Message" -ForegroundColor Green }
 function Write-Warn([string]$Message) { Write-Host "[WARN] $Message" -ForegroundColor Yellow }
 function Write-Info([string]$Message) { Write-Host "[INFO] $Message" -ForegroundColor Cyan }
-function Write-Err([string]$Message) { Write-Host "[ERROR] $Message" -ForegroundColor Red }
 
 $repoRootResolved = (Resolve-Path $RepoRoot).Path
 $agentDir = Join-Path $repoRootResolved "desktop-agent"
 
-function Get-ProcessInfoById([int]$Pid) {
+function Get-ProcessInfoById([int]$TargetPid) {
     try {
-        return Get-CimInstance Win32_Process -Filter "ProcessId=$Pid"
+        return Get-CimInstance Win32_Process -Filter "ProcessId=$TargetPid"
     }
     catch {
         return $null
     }
 }
 
-function Is-AgentProcess($ProcessInfo) {
+function Test-IsAgentProcess($ProcessInfo) {
     if (-not $ProcessInfo) {
         return $false
     }
@@ -49,7 +48,6 @@ function Is-AgentProcess($ProcessInfo) {
 
 $pidMap = @{}
 
-# 1. Process CommandLine Suche.
 $commandLineMatches = Get-CimInstance Win32_Process |
     Where-Object {
         $_.CommandLine -and
@@ -64,30 +62,29 @@ foreach ($process in $commandLineMatches) {
     $pidMap["$($process.ProcessId)"] = $process
 }
 
-# 2. Port Owner Suche.
 try {
     $connections = Get-NetTCPConnection -LocalAddress "127.0.0.1" -LocalPort $LocalAgentPort -State Listen -ErrorAction SilentlyContinue
+
     if (-not $connections) {
         $connections = Get-NetTCPConnection -LocalPort $LocalAgentPort -State Listen -ErrorAction SilentlyContinue
     }
 
     foreach ($connection in $connections) {
-        if ($connection.OwningProcess -and -not $pidMap.ContainsKey("$($connection.OwningProcess)")) {
-            $processInfo = Get-ProcessInfoById -Pid $connection.OwningProcess
+        $owner = $connection.OwningProcess
+        if ($owner -and -not $pidMap.ContainsKey("$owner")) {
+            $processInfo = Get-ProcessInfoById -TargetPid $owner
             if ($processInfo) {
-                $pidMap["$($connection.OwningProcess)"] = $processInfo
+                $pidMap["$owner"] = $processInfo
             }
         }
     }
 }
 catch {
-    Write-Warn "Port-Erkennung über Get-NetTCPConnection nicht verfügbar oder fehlgeschlagen: $($_.Exception.Message)"
+    Write-Warn "Port-Erkennung über Get-NetTCPConnection fehlgeschlagen: $($_.Exception.Message)"
 }
 
 if ($pidMap.Count -eq 0) {
     Write-Warn "Kein lokaler JARVIS Agent-Prozess gefunden."
-    Write-Host "Hinweis: Wenn die lokale Agent-API trotzdem erreichbar ist, prüfe manuell:"
-    Write-Host "  Get-NetTCPConnection -LocalPort $LocalAgentPort -State Listen"
     exit 1
 }
 
@@ -96,10 +93,10 @@ $skipped = 0
 
 foreach ($entry in $pidMap.GetEnumerator()) {
     $process = $entry.Value
-    $pidValue = [int]$process.ProcessId
-    $isAgent = Is-AgentProcess $process
+    $targetPid = [int]$process.ProcessId
+    $isAgent = Test-IsAgentProcess $process
 
-    Write-Info "Gefunden: PID=$pidValue Name=$($process.Name)"
+    Write-Info "Gefunden: PID=$targetPid Name=$($process.Name)"
     Write-Host "CommandLine: $($process.CommandLine)"
 
     if (-not $isAgent -and -not $ForceByPort) {
@@ -111,17 +108,17 @@ foreach ($entry in $pidMap.GetEnumerator()) {
     }
 
     if ($WhatIfOnly) {
-        Write-Info "WhatIfOnly aktiv. Würde PID=$pidValue stoppen."
+        Write-Info "WhatIfOnly aktiv. Würde PID=$targetPid stoppen."
         continue
     }
 
     try {
-        Stop-Process -Id $pidValue -Force
+        Stop-Process -Id $targetPid -Force
         $stopped += 1
-        Write-Ok "Agent-Prozess gestoppt: PID=$pidValue"
+        Write-Ok "Agent-Prozess gestoppt: PID=$targetPid"
     }
     catch {
-        Write-Warn "Agent-Prozess konnte nicht gestoppt werden: PID=$pidValue | $($_.Exception.Message)"
+        Write-Warn "Agent-Prozess konnte nicht gestoppt werden: PID=$targetPid | $($_.Exception.Message)"
     }
 }
 

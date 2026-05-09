@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
@@ -119,7 +119,7 @@ def validate_agent_config(config: dict[str, Any]) -> list[ConfigFinding]:
                     level="error",
                     code="local_api_host_not_loopback",
                     field="localApi.host",
-                    message=f"{SECURITY_RISK_MARKER}: localApi.host muss fÃ¼r den MVP auf 127.0.0.1 oder localhost gebunden sein.",
+                    message=f"{SECURITY_RISK_MARKER}: localApi.host muss für den MVP auf 127.0.0.1 oder localhost gebunden sein.",
                 )
             )
 
@@ -147,7 +147,7 @@ def validate_agent_config(config: dict[str, Any]) -> list[ConfigFinding]:
                             level="warning",
                             code="app_path_placeholder",
                             field=f"apps.{app_name}.path",
-                            message=f"{CONFIG_REQUIRED_MARKER}: App-Pfad fÃ¼r {app_name} ist ein Platzhalter.",
+                            message=f"{CONFIG_REQUIRED_MARKER}: App-Pfad für {app_name} ist ein Platzhalter.",
                         )
                     )
                 elif not Path(_as_str(path_value)).exists():
@@ -156,7 +156,7 @@ def validate_agent_config(config: dict[str, Any]) -> list[ConfigFinding]:
                             level="warning",
                             code="app_path_not_found",
                             field=f"apps.{app_name}.path",
-                            message=f"{CONFIG_REQUIRED_MARKER}: App-Pfad fÃ¼r {app_name} existiert nicht.",
+                            message=f"{CONFIG_REQUIRED_MARKER}: App-Pfad für {app_name} existiert nicht.",
                         )
                     )
 
@@ -168,7 +168,7 @@ def validate_agent_config(config: dict[str, Any]) -> list[ConfigFinding]:
                             level="warning",
                             code="app_uri_missing_or_placeholder",
                             field=f"apps.{app_name}.uri",
-                            message=f"{CONFIG_REQUIRED_MARKER}: URI fÃ¼r {app_name} fehlt oder ist ein Platzhalter.",
+                            message=f"{CONFIG_REQUIRED_MARKER}: URI für {app_name} fehlt oder ist ein Platzhalter.",
                         )
                     )
 
@@ -178,7 +178,7 @@ def validate_agent_config(config: dict[str, Any]) -> list[ConfigFinding]:
                         level="warning",
                         code="app_command_mode_requires_explicit_allow",
                         field=f"apps.{app_name}.mode",
-                        message=f"{SECURITY_RISK_MARKER}: command-Modus fÃ¼r {app_name} wird nur mit allowCommandMode=true ausgefÃ¼hrt.",
+                        message=f"{SECURITY_RISK_MARKER}: command-Modus für {app_name} wird nur mit allowCommandMode=true ausgeführt.",
                     )
                 )
 
@@ -188,7 +188,7 @@ def validate_agent_config(config: dict[str, Any]) -> list[ConfigFinding]:
                         level="warning",
                         code="app_mode_unknown",
                         field=f"apps.{app_name}.mode",
-                        message=f"{CONFIG_REQUIRED_MARKER}: Unbekannter Startmodus fÃ¼r {app_name}: {mode}",
+                        message=f"{CONFIG_REQUIRED_MARKER}: Unbekannter Startmodus für {app_name}: {mode}",
                     )
                 )
 
