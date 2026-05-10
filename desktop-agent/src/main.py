@@ -315,6 +315,64 @@ def arrange_windows() -> None:
         log("ERROR", f"Fensteranordnung fehlgeschlagen: {exc}", errorCode="window_arrange_failed")
 
 
+# JARVIS_PATCH_027_3_4: Morning Routine TODO Review Integration.
+def run_todo_review_for_morning(config: dict[str, Any]) -> dict[str, Any] | None:
+    todo_review_config = config.get("todoReview", {}) if isinstance(config, dict) else {}
+
+    if not isinstance(todo_review_config, dict):
+        todo_review_config = {}
+
+    enabled = bool(todo_review_config.get("enabled", True))
+
+    if not enabled:
+        log("INFO", "TODO Review für Morning Routine deaktiviert.")
+        return None
+
+    apply_during_morning = bool(todo_review_config.get("applyDuringMorningRoutine", False))
+
+    try:
+        from todo.todo_review_command import run_agent_todo_review
+
+        project_config = config.get("project", {}) if isinstance(config, dict) else {}
+        repo_root = None
+
+        if isinstance(project_config, dict):
+            repo_root = project_config.get("lastProjectPath")
+
+        result = run_agent_todo_review(
+            repo_root=repo_root,
+            apply_to_todo=apply_during_morning,
+            log=log,
+        )
+
+        summary = result.get("summary", {}) if isinstance(result, dict) else {}
+
+        if result.get("ok"):
+            log(
+                "OK",
+                "TODO Review Morning Routine abgeschlossen: "
+                f"openItems={summary.get('openItems', 0)}, "
+                f"scheduledItems={summary.get('scheduledItems', 0)}, "
+                f"applied={summary.get('applied', False)}",
+            )
+        else:
+            log(
+                "WARN",
+                f"TODO Review Morning Routine fehlgeschlagen: {result.get('message', 'unbekannt')}",
+                errorCode=result.get("errorCode") or "todo_review_failed",
+            )
+
+        return result
+
+    except Exception as exc:
+        log("ERROR", f"TODO Review Morning Routine Fehler: {exc}", errorCode="todo_review_exception")
+        return {
+            "ok": False,
+            "errorCode": "todo_review_exception",
+            "message": str(exc),
+        }
+
+
 def analyze_current_project(config: dict[str, Any]) -> str:
     try:
         from integrations.project_analyzer import analyze_project, build_human_summary
@@ -433,6 +491,8 @@ def run_morning_routine(config: dict[str, Any]) -> None:
         else:
             log("INFO", "Keine offenen TODOs für heute gefunden.")
 
+        todo_review_result = run_todo_review_for_morning(config)
+        todo_review_summary = todo_review_result.get("summary", {}) if isinstance(todo_review_result, dict) else None
         project_summary = analyze_current_project(config)
 
         send_morning_log_safe(

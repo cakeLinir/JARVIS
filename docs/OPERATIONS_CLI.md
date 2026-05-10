@@ -204,3 +204,48 @@ Runtime Cleanup und Projektanalyse-Rauschfilter sind dokumentiert in:
 ```text
 docs/RUNTIME_CLEANUP_ANALYSIS_NOISE.md
 ```
+
+## Project Analyzer
+
+```powershell
+.\scripts\test-project-analyzer.ps1
+```
+
+Details:
+
+```text
+docs/PROJECT_ANALYZER_REFACTOR.md
+```
+
+## TODO Review
+
+```powershell
+.\scripts\test-todo-review.ps1
+```
+
+Erzeugt lokale Vorschläge:
+
+```text
+data/todo.review.json
+data/todo.schedule.json
+```
+
+Details:
+
+```text
+docs/TODO_REVIEW.md
+```
+
+## Agent TODO Review Command
+
+```powershell
+.\scripts\agent-todo-review.ps1
+.\scripts\agent-todo-review.ps1 -ApplyToTodo
+.\scripts\test-agent-todo-review-command.ps1
+```
+
+## Morning TODO Review Integration
+
+```powershell
+.\scripts\test-morning-todo-review-integration.ps1
+```

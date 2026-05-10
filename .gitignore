@@ -54,3 +54,7 @@ dashboard/dist/
 dashboard/.vite/
 dashboard/*.tsbuildinfo
 dashboard/node_modules/.tmp/
+data/todo.review.json
+data/todo.schedule.json
+data/todo.apply-log.json
+data/backups/

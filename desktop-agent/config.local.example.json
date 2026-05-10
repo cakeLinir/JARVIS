@@ -53,5 +53,9 @@
   "discord": {
     "guildId": "1171118476929269820",
     "channelId": "1434639335772262552"
+  },
+  "todoReview": {
+    "enabled": true,
+    "applyDuringMorningRoutine": false
   }
 }
