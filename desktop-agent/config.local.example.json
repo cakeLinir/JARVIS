@@ -1,4 +1,4 @@
-{
+﻿{
   "backendUrl": "http://46.225.14.84:8181",
   "agentToken": "DEIN_JARVIS_AGENT_TOKEN",
   "headless": true,
