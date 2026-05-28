@@ -1,9 +1,10 @@
 # Desktop Agent Requirements
 
-# MVP benötigt erstmal keine externen Python-Pakete.
-# Später:
 psutil>=5.9,<7.0
 pywin32>=306
 pyttsx3>=2.90
+SpeechRecognition>=3.10,<4.0
+# PyAudio 0.2.14+ hat vorgefertigte Windows-Wheels: pip install pyaudio
+pyaudio>=0.2.14
 websockets>=12,<16
 # openai

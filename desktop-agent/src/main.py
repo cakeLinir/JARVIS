@@ -440,13 +440,31 @@ def send_morning_log_safe(
         log("ERROR", f"Morgenroutine-Log konnte nicht ans Backend gesendet werden: {exc}")
 
 
-def run_morning_routine(config: dict[str, Any]) -> None:
+def _build_speak_fn(config: dict[str, Any]) -> Any:
+    try:
+        from voice.controller import get_voice_status
+        from voice.tts_service import create_tts
+
+        status = get_voice_status(config)
+        if status.enabled and status.ttsProvider not in ("disabled", "none", ""):
+            tts = create_tts(config)
+            return tts.speak
+    except Exception:
+        pass
+
+    return lambda text: None
+
+
+def run_morning_routine(config: dict[str, Any], speak: Any = None) -> None:
     if not MORNING_ROUTINE_LOCK.acquire(blocking=False):
         log("WARN", "Morgenroutine läuft bereits. Neuer Start wurde blockiert.", errorCode="morning_routine_already_running")
         return
 
+    _speak = speak or (lambda text: None)
+
     try:
         log("INFO", "Guten Morgen. Starte Morgenroutine.")
+        _speak("Guten Morgen. Ich starte die Morgenroutine.")
 
         started_apps: list[str] = []
         failed_apps: list[str] = []
@@ -509,6 +527,7 @@ def run_morning_routine(config: dict[str, Any]) -> None:
         arrange_windows()
 
         log("INFO", "Morgenroutine MVP abgeschlossen.")
+        _speak("Morgenroutine abgeschlossen.")
 
     finally:
         MORNING_ROUTINE_LOCK.release()
@@ -535,7 +554,7 @@ def complete_backend_command(
     )
 
 
-def handle_backend_command(config: dict[str, Any], command: dict[str, Any]) -> None:
+def handle_backend_command(config: dict[str, Any], command: dict[str, Any], speak: Any = None) -> None:
     command_id = command.get("id")
     command_type = command.get("type")
     correlation_id = command.get("correlationId")
@@ -548,7 +567,7 @@ def handle_backend_command(config: dict[str, Any], command: dict[str, Any]) -> N
 
     try:
         if command_type == "morning_routine":
-            run_morning_routine(config)
+            run_morning_routine(config, speak=speak)
 
             complete_backend_command(
                 config=config,
@@ -653,7 +672,7 @@ def heartbeat_loop(config: dict[str, Any], stop_event: threading.Event) -> None:
     log("INFO", "Agent Heartbeat beendet.")
 
 
-def command_poll_loop(config: dict[str, Any], stop_event: threading.Event) -> None:
+def command_poll_loop(config: dict[str, Any], stop_event: threading.Event, speak: Any = None) -> None:
     log("INFO", "Backend Command Polling gestartet.")
 
     while not stop_event.is_set():
@@ -663,7 +682,7 @@ def command_poll_loop(config: dict[str, Any], stop_event: threading.Event) -> No
             command = get_next_command(config, log)
 
             if command:
-                handle_backend_command(config, command)
+                handle_backend_command(config, command, speak=speak)
 
         except Exception as exc:
             log("ERROR", f"Command Polling Fehler: {exc}", errorCode="command_poll_failed")
@@ -682,15 +701,50 @@ def normalize_command(command: str) -> str:
         return " ".join(command.strip().lower().split())
 
 
+def _handle_local_command(
+    command: str,
+    config: dict[str, Any],
+    wake_words: list[str],
+    stop_event: threading.Event,
+    speak: Any,
+) -> bool:
+    """Returns True if the agent should stop."""
+    if command in ["exit", "quit", "beenden"]:
+        send_agent_status_safe(config, "offline")
+        stop_event.set()
+        log("INFO", "JARVIS Local Client wird beendet.")
+        return True
+
+    if command in ["jarvis, stopp", "jarvis, abbrechen", "jarvis, beenden"]:
+        send_agent_status_safe(config, "stopped")
+        stop_event.set()
+        log("WARN", "Not-Aus ausgelöst.")
+        return True
+
+    if command in wake_words or command == "guten morgen jarvis":
+        if command == "guten morgen jarvis":
+            run_morning_routine(config, speak=speak)
+        else:
+            log("INFO", "JARVIS ist aktiv.")
+            speak("Ja, ich bin bereit.")
+        return False
+
+    log("WARN", f"Unbekannter Befehl: {command}", errorCode="unknown_local_command")
+    speak("Das habe ich nicht verstanden.")
+    return False
+
+
 def main() -> None:
     config = load_config()
 
     try:
-        from voice.controller import log_voice_status
+        from voice.controller import get_voice_status, log_voice_status
 
         log_voice_status(config, log)
+        voice_status = get_voice_status(config)
     except Exception as exc:
         log("ERROR", f"Voice-Status konnte nicht initialisiert werden: {exc}")
+        voice_status = None
 
     try:
         from voice.phrases import get_wake_words
@@ -699,13 +753,17 @@ def main() -> None:
     except Exception:
         wake_words = config.get("wakeWords", [])
 
+    voice_enabled = voice_status is not None and voice_status.enabled
+    speak: Any = _build_speak_fn(config) if voice_enabled else (lambda text: None)
 
     stop_event = threading.Event()
 
     log("INFO", "JARVIS Local Client gestartet.")
-    log("INFO", "Textmodus aktiv. Voice kommt in einer späteren Phase.")
-    log("INFO", "Teste mit: guten morgen jarvis")
-    log("INFO", "Beenden mit: exit")
+
+    if voice_enabled:
+        log("INFO", f"Voice-Modus aktiv: stt={voice_status.sttProvider}, tts={voice_status.ttsProvider}")
+    else:
+        log("INFO", "Textmodus aktiv. Tippe 'guten morgen jarvis' oder 'exit'.")
 
     send_agent_status_safe(config, "online")
 
@@ -721,7 +779,7 @@ def main() -> None:
         local_api_server = start_local_api(
             config=config,
             log=log,
-            run_morning=lambda: run_morning_routine(config),
+            run_morning=lambda: run_morning_routine(config, speak=speak),
             stop_agent=request_stop,
         )
     except Exception as exc:
@@ -729,7 +787,7 @@ def main() -> None:
 
     polling_thread = threading.Thread(
         target=command_poll_loop,
-        args=(config, stop_event),
+        args=(config, stop_event, speak),
         daemon=True,
     )
     polling_thread.start()
@@ -741,36 +799,51 @@ def main() -> None:
     )
     heartbeat_thread.start()
 
-    while not stop_event.is_set():
+    if voice_enabled:
         try:
-            command = normalize_command(input("> "))
+            from voice.stt_service import create_stt
+            from voice.tts_service import create_tts
+            from voice.wake_word import WakeWordDetector
 
-            if command in ["exit", "quit", "beenden"]:
-                send_agent_status_safe(config, "offline")
+            tts = create_tts(config)
+            stt = create_stt(config)
+
+            def on_voice_command(cmd: str) -> None:
+                normalized = normalize_command(cmd)
+                should_stop = _handle_local_command(normalized, config, wake_words, stop_event, tts.speak)
+                if should_stop:
+                    stop_event.set()
+
+            detector = WakeWordDetector(
+                config=config,
+                stt=stt,
+                tts=tts,
+                log=log,
+                on_command=on_voice_command,
+            )
+            detector.start()
+
+            stop_event.wait()
+            detector.stop()
+            tts.stop()
+
+        except Exception as exc:
+            log("ERROR", f"Voice-Modus fehlgeschlagen: {exc}. Fallback auf Textmodus.", errorCode="voice_mode_failed")
+            voice_enabled = False
+
+    if not voice_enabled:
+        while not stop_event.is_set():
+            try:
+                command = normalize_command(input("> "))
+                should_stop = _handle_local_command(command, config, wake_words, stop_event, speak)
+                if should_stop:
+                    break
+
+            except KeyboardInterrupt:
+                send_agent_status_safe(config, "interrupted")
                 stop_event.set()
-                log("INFO", "JARVIS Local Client wird beendet.")
+                log("WARN", "Abbruch durch Benutzer.")
                 break
-
-            if command in ["jarvis, stopp", "jarvis, abbrechen", "jarvis, beenden"]:
-                send_agent_status_safe(config, "stopped")
-                stop_event.set()
-                log("WARN", "Not-Aus ausgelöst.")
-                break
-
-            if command in wake_words:
-                if command == "guten morgen jarvis":
-                    run_morning_routine(config)
-                else:
-                    log("INFO", "JARVIS ist aktiv.")
-                continue
-
-            log("WARN", f"Unbekannter Befehl: {command}", errorCode="unknown_local_command")
-
-        except KeyboardInterrupt:
-            send_agent_status_safe(config, "interrupted")
-            stop_event.set()
-            log("WARN", "Abbruch durch Benutzer.")
-            break
 
     if local_api_server:
         local_api_server.stop()
