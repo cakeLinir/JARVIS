@@ -58,8 +58,6 @@ async function openAiFetch<T>(endpoint: string, body: unknown): Promise<T> {
   return parsed as T;
 }
 
-// ✅ FIX: Korrekter Endpoint /realtime/sessions (nicht /realtime/client_secrets)
-// ✅ FIX: Korrektes Request-Body-Format ohne session-Wrapper und ohne audio.output-Nesting
 export async function createRealtimeClientSecret(
   input: RealtimeClientSecretRequest = {}
 ) {
