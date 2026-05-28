@@ -19,7 +19,7 @@ import {
   getAgentStatus,
   getMorningLog
 } from "../services/agent-state.js";
-import { getCommandCounts, getRecentCommands } from "../services/command-store.js";
+import { addCommand, createCommandId, createCorrelationId, getCommandCounts, getRecentCommands } from "../services/command-store.js";
 import { appendAuditEvent, getRecentAuditEvents } from "../services/audit-log.js";
 import { getNewsSources } from "../services/news.service.js";
 
@@ -498,7 +498,6 @@ export async function dashboardRoutes(server: FastifyInstance) {
       const session = getDashboardSession(request, reply);
       const actorId = session?.discordUserId ?? "dashboard";
 
-      const { addCommand, createCommandId, createCorrelationId } = await import("../services/command-store.js");
       const command = addCommand({
         id: createCommandId(),
         correlationId: createCorrelationId(),
