@@ -18,13 +18,18 @@ JARVIS_PROJECT_ANALYSIS_EXCLUDE_FILES = {
     "desktop-agent/config.local.json",
 }
 
+
 def jarvis_is_noise_path(path_value):
     normalized = str(path_value).replace("\\", "/").strip("/")
     lower = normalized.lower()
 
     for excluded in JARVIS_PROJECT_ANALYSIS_EXCLUDE_DIRS:
         excluded_lower = excluded.lower().strip("/")
-        if lower == excluded_lower or lower.startswith(excluded_lower + "/") or ("/" + excluded_lower + "/") in ("/" + lower + "/"):
+        if (
+            lower == excluded_lower
+            or lower.startswith(excluded_lower + "/")
+            or ("/" + excluded_lower + "/") in ("/" + lower + "/")
+        ):
             return True
 
     for excluded_file in JARVIS_PROJECT_ANALYSIS_EXCLUDE_FILES:
@@ -32,6 +37,7 @@ def jarvis_is_noise_path(path_value):
             return True
 
     return False
+
 
 def jarvis_is_todo_noise_path(path_value):
     normalized = str(path_value).replace("\\", "/").strip("/")
@@ -60,6 +66,7 @@ JARVIS_PROJECT_LOG_SUPPRESS_PATTERNS = (
     "desktop-agent\\config.local.example.json:",
 )
 
+
 def jarvis_normalize_log_text(message_value):
     message_text = str(message_value)
     replacements = {
@@ -79,17 +86,27 @@ def jarvis_normalize_log_text(message_value):
 
     return message_text
 
+
 def jarvis_normalize_log_event(level_value, message_value):
     level_text = str(level_value)
     message_text = jarvis_normalize_log_text(message_value)
 
-    if level_text.upper() == "ERROR" and "App-Start fehlgeschlagen:" in message_text and "App deaktiviert" in message_text:
-        message_text = message_text.replace("App-Start fehlgeschlagen:", "App übersprungen:")
+    if (
+        level_text.upper() == "ERROR"
+        and "App-Start fehlgeschlagen:" in message_text
+        and "App deaktiviert" in message_text
+    ):
+        message_text = message_text.replace(
+            "App-Start fehlgeschlagen:", "App übersprungen:"
+        )
         if " | App deaktiviert:" in message_text:
-            message_text = message_text.split(" | App deaktiviert:", 1)[0] + " | App deaktiviert"
+            message_text = (
+                message_text.split(" | App deaktiviert:", 1)[0] + " | App deaktiviert"
+            )
         level_text = "WARN"
 
     return level_text, message_text
+
 
 def jarvis_should_suppress_log(level_value, message_value):
     level_text = str(level_value).upper()
@@ -104,14 +121,17 @@ def jarvis_should_suppress_log(level_value, message_value):
 
     return False
 
-
     if jarvis_is_noise_path(normalized):
         return True
 
     if lower.startswith("docs/") and "todo" in lower:
         return True
 
-    if lower.endswith("config.json") or lower.endswith("config.local.json") or lower.endswith("config.local.example.json"):
+    if (
+        lower.endswith("config.json")
+        or lower.endswith("config.local.json")
+        or lower.endswith("config.local.example.json")
+    ):
         return True
 
     return False
@@ -183,7 +203,11 @@ def log(level: str, message: str, **fields: Any) -> None:
         pass
     LOG_DIR.mkdir(parents=True, exist_ok=True)
 
-    safe_message = message.replace(os.getenv("JARVIS_AGENT_TOKEN", ""), "***") if os.getenv("JARVIS_AGENT_TOKEN") else message
+    safe_message = (
+        message.replace(os.getenv("JARVIS_AGENT_TOKEN", ""), "***")
+        if os.getenv("JARVIS_AGENT_TOKEN")
+        else message
+    )
 
     event = {
         "timestamp": datetime.now().isoformat(),
@@ -207,11 +231,7 @@ def deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]
     result = dict(base)
 
     for key, value in override.items():
-        if (
-            key in result
-            and isinstance(result[key], dict)
-            and isinstance(value, dict)
-        ):
+        if key in result and isinstance(result[key], dict) and isinstance(value, dict):
             result[key] = deep_merge(result[key], value)
         else:
             result[key] = value
@@ -240,7 +260,10 @@ def load_config() -> dict[str, Any]:
         config = deep_merge(config, load_json_file(LOCAL_CONFIG_PATH))
         log("INFO", f"Lokale Config geladen: {LOCAL_CONFIG_PATH}")
     else:
-        log("WARN", f"{CONFIG_REQUIRED_MARKER}: Lokale Config fehlt: {LOCAL_CONFIG_PATH}")
+        log(
+            "WARN",
+            f"{CONFIG_REQUIRED_MARKER}: Lokale Config fehlt: {LOCAL_CONFIG_PATH}",
+        )
 
     env_agent_token = os.getenv("JARVIS_AGENT_TOKEN", "").strip()
     if env_agent_token:
@@ -254,7 +277,12 @@ def load_config() -> dict[str, Any]:
 
     findings = validate_agent_config(config)
     for finding in findings:
-        log(finding.level.upper(), finding.message, code=finding.code, field=finding.field)
+        log(
+            finding.level.upper(),
+            finding.message,
+            code=finding.code,
+            field=finding.field,
+        )
 
     return config
 
@@ -275,7 +303,10 @@ def get_todo_path(config: dict[str, Any]) -> Path | None:
     todo_path = Path(todo_path_value)
 
     if not todo_path.exists():
-        log("ERROR", f"KONFIGURATION_ERFORDERLICH: TODO-Datei existiert nicht: {todo_path}")
+        log(
+            "ERROR",
+            f"KONFIGURATION_ERFORDERLICH: TODO-Datei existiert nicht: {todo_path}",
+        )
         return None
 
     return todo_path
@@ -308,16 +339,26 @@ def arrange_windows() -> None:
         arrange_morning_windows(log)
 
     except ImportError as exc:
-        log("ERROR", f"Fenster-Manager Abhängigkeit fehlt: {exc}", errorCode="window_manager_dependency_missing")
+        log(
+            "ERROR",
+            f"Fenster-Manager Abhängigkeit fehlt: {exc}",
+            errorCode="window_manager_dependency_missing",
+        )
         log("ERROR", "Installiere mit: py -3 -m pip install pywin32 psutil")
 
     except Exception as exc:
-        log("ERROR", f"Fensteranordnung fehlgeschlagen: {exc}", errorCode="window_arrange_failed")
+        log(
+            "ERROR",
+            f"Fensteranordnung fehlgeschlagen: {exc}",
+            errorCode="window_arrange_failed",
+        )
 
 
 # JARVIS_PATCH_027_3_4: Morning Routine TODO Review Integration.
 def run_todo_review_for_morning(config: dict[str, Any]) -> dict[str, Any] | None:
-    todo_review_config = config.get("todoReview", {}) if isinstance(config, dict) else {}
+    todo_review_config = (
+        config.get("todoReview", {}) if isinstance(config, dict) else {}
+    )
 
     if not isinstance(todo_review_config, dict):
         todo_review_config = {}
@@ -328,7 +369,9 @@ def run_todo_review_for_morning(config: dict[str, Any]) -> dict[str, Any] | None
         log("INFO", "TODO Review für Morning Routine deaktiviert.")
         return None
 
-    apply_during_morning = bool(todo_review_config.get("applyDuringMorningRoutine", False))
+    apply_during_morning = bool(
+        todo_review_config.get("applyDuringMorningRoutine", False)
+    )
 
     try:
         from todo.todo_review_command import run_agent_todo_review
@@ -365,7 +408,11 @@ def run_todo_review_for_morning(config: dict[str, Any]) -> dict[str, Any] | None
         return result
 
     except Exception as exc:
-        log("ERROR", f"TODO Review Morning Routine Fehler: {exc}", errorCode="todo_review_exception")
+        log(
+            "ERROR",
+            f"TODO Review Morning Routine Fehler: {exc}",
+            errorCode="todo_review_exception",
+        )
         return {
             "ok": False,
             "errorCode": "todo_review_exception",
@@ -378,13 +425,21 @@ def analyze_current_project(config: dict[str, Any]) -> str:
         from integrations.project_analyzer import analyze_project, build_human_summary
 
         project_config = config.get("project", {})
-        project_path = project_config.get("lastProjectPath") if isinstance(project_config, dict) else None
+        project_path = (
+            project_config.get("lastProjectPath")
+            if isinstance(project_config, dict)
+            else None
+        )
 
         analysis = analyze_project(project_path, log)
         return str(analysis.get("summary") or build_human_summary(analysis))
 
     except Exception as exc:
-        log("ERROR", f"Projektanalyse fehlgeschlagen: {exc}", errorCode="project_analysis_failed")
+        log(
+            "ERROR",
+            f"Projektanalyse fehlgeschlagen: {exc}",
+            errorCode="project_analysis_failed",
+        )
         return f"Projektanalyse fehlgeschlagen: {exc}"
 
 
@@ -395,7 +450,11 @@ def send_agent_status_safe(config: dict[str, Any], status: str) -> None:
         send_agent_status(config, log, status)
 
     except Exception as exc:
-        log("ERROR", f"Agent-Status konnte nicht ans Backend gesendet werden: {exc}", errorCode="agent_status_send_failed")
+        log(
+            "ERROR",
+            f"Agent-Status konnte nicht ans Backend gesendet werden: {exc}",
+            errorCode="agent_status_send_failed",
+        )
 
 
 def get_todo_status_safe(config: dict[str, Any]) -> dict[str, Any]:
@@ -437,27 +496,19 @@ def send_morning_log_safe(
         )
 
     except Exception as exc:
-        log("ERROR", f"Morgenroutine-Log konnte nicht ans Backend gesendet werden: {exc}")
-
-
-def _build_speak_fn(config: dict[str, Any]) -> Any:
-    try:
-        from voice.controller import get_voice_status
-        from voice.tts_service import create_tts
-
-        status = get_voice_status(config)
-        if status.enabled and status.ttsProvider not in ("disabled", "none", ""):
-            tts = create_tts(config)
-            return tts.speak
-    except Exception:
-        pass
-
-    return lambda text: None
+        log(
+            "ERROR",
+            f"Morgenroutine-Log konnte nicht ans Backend gesendet werden: {exc}",
+        )
 
 
 def run_morning_routine(config: dict[str, Any], speak: Any = None) -> None:
     if not MORNING_ROUTINE_LOCK.acquire(blocking=False):
-        log("WARN", "Morgenroutine läuft bereits. Neuer Start wurde blockiert.", errorCode="morning_routine_already_running")
+        log(
+            "WARN",
+            "Morgenroutine läuft bereits. Neuer Start wurde blockiert.",
+            errorCode="morning_routine_already_running",
+        )
         return
 
     _speak = speak or (lambda text: None)
@@ -471,14 +522,23 @@ def run_morning_routine(config: dict[str, Any], speak: Any = None) -> None:
 
         apps = config.get("apps", {})
         if not isinstance(apps, dict):
-            log("ERROR", f"{CONFIG_REQUIRED_MARKER}: apps-Konfiguration ist ungültig.", errorCode="apps_config_invalid")
+            log(
+                "ERROR",
+                f"{CONFIG_REQUIRED_MARKER}: apps-Konfiguration ist ungültig.",
+                errorCode="apps_config_invalid",
+            )
             apps = {}
 
         for app_name in ["obs", "discord", "spotify", "whatsapp", "vscode"]:
             app_config = apps.get(app_name)
 
             if not isinstance(app_config, dict):
-                log("WARN", f"Keine App-Konfiguration gefunden: {app_name}", errorCode="app_config_missing", app=app_name)
+                log(
+                    "WARN",
+                    f"Keine App-Konfiguration gefunden: {app_name}",
+                    errorCode="app_config_missing",
+                    app=app_name,
+                )
                 failed_apps.append(app_name)
                 continue
 
@@ -491,7 +551,12 @@ def run_morning_routine(config: dict[str, Any], speak: Any = None) -> None:
                 app_log_level, app_log_message = jarvis_normalize_log_event(
                     "ERROR", f"App-Start fehlgeschlagen: {app_name} | {result.message}"
                 )
-                log(app_log_level, app_log_message, errorCode=result.error_code or "app_start_failed", app=app_name)
+                log(
+                    app_log_level,
+                    app_log_message,
+                    errorCode=result.error_code or "app_start_failed",
+                    app=app_name,
+                )
 
         todo_opened = open_todo(config)
 
@@ -510,7 +575,11 @@ def run_morning_routine(config: dict[str, Any], speak: Any = None) -> None:
             log("INFO", "Keine offenen TODOs für heute gefunden.")
 
         todo_review_result = run_todo_review_for_morning(config)
-        todo_review_summary = todo_review_result.get("summary", {}) if isinstance(todo_review_result, dict) else None
+        todo_review_summary = (
+            todo_review_result.get("summary", {})
+            if isinstance(todo_review_result, dict)
+            else None
+        )
         project_summary = analyze_current_project(config)
 
         send_morning_log_safe(
@@ -554,16 +623,25 @@ def complete_backend_command(
     )
 
 
-def handle_backend_command(config: dict[str, Any], command: dict[str, Any], speak: Any = None) -> None:
+def handle_backend_command(
+    config: dict[str, Any], command: dict[str, Any], speak: Any = None
+) -> None:
     command_id = command.get("id")
     command_type = command.get("type")
     correlation_id = command.get("correlationId")
 
     if not command_id:
-        log("ERROR", "Backend-Command ohne ID erhalten.", errorCode="command_id_missing")
+        log(
+            "ERROR", "Backend-Command ohne ID erhalten.", errorCode="command_id_missing"
+        )
         return
 
-    log("INFO", f"Backend-Command erhalten: {command_id} | {command_type}", commandId=command_id, correlationId=correlation_id)
+    log(
+        "INFO",
+        f"Backend-Command erhalten: {command_id} | {command_type}",
+        commandId=command_id,
+        correlationId=correlation_id,
+    )
 
     try:
         if command_type == "morning_routine":
@@ -590,8 +668,16 @@ def handle_backend_command(config: dict[str, Any], command: dict[str, Any], spea
 
         if command_type == "app_open":
             payload = command.get("payload") or {}
-            app_name = str(payload.get("app", "")).strip().lower() if isinstance(payload, dict) else ""
-            app_config = config.get("apps", {}).get(app_name) if isinstance(config.get("apps", {}), dict) else None
+            app_name = (
+                str(payload.get("app", "")).strip().lower()
+                if isinstance(payload, dict)
+                else ""
+            )
+            app_config = (
+                config.get("apps", {}).get(app_name)
+                if isinstance(config.get("apps", {}), dict)
+                else None
+            )
 
             if not app_name or not isinstance(app_config, dict):
                 complete_backend_command(
@@ -599,7 +685,11 @@ def handle_backend_command(config: dict[str, Any], command: dict[str, Any], spea
                     command_id=command_id,
                     status="rejected",
                     result=f"App nicht konfiguriert: {app_name}",
-                    details={"type": command_type, "app": app_name, "correlationId": correlation_id},
+                    details={
+                        "type": command_type,
+                        "app": app_name,
+                        "correlationId": correlation_id,
+                    },
                     error_code="app_not_configured",
                 )
                 return
@@ -610,7 +700,11 @@ def handle_backend_command(config: dict[str, Any], command: dict[str, Any], spea
                 command_id=command_id,
                 status="completed" if launch_result.success else "failed",
                 result=launch_result.message,
-                details={"type": command_type, "app": app_name, "correlationId": correlation_id},
+                details={
+                    "type": command_type,
+                    "app": app_name,
+                    "correlationId": correlation_id,
+                },
                 error_code=launch_result.error_code,
             )
             return
@@ -635,7 +729,12 @@ def handle_backend_command(config: dict[str, Any], command: dict[str, Any], spea
         )
 
     except Exception as exc:
-        log("ERROR", f"Backend-Command fehlgeschlagen: {command_id} | {exc}", commandId=command_id, errorCode="command_execution_failed")
+        log(
+            "ERROR",
+            f"Backend-Command fehlgeschlagen: {command_id} | {exc}",
+            commandId=command_id,
+            errorCode="command_execution_failed",
+        )
 
         try:
             complete_backend_command(
@@ -647,12 +746,20 @@ def handle_backend_command(config: dict[str, Any], command: dict[str, Any], spea
                 error_code="command_execution_failed",
             )
         except Exception as inner_exc:
-            log("ERROR", f"Command-Fehler konnte nicht ans Backend gesendet werden: {inner_exc}", errorCode="command_failure_report_failed")
+            log(
+                "ERROR",
+                f"Command-Fehler konnte nicht ans Backend gesendet werden: {inner_exc}",
+                errorCode="command_failure_report_failed",
+            )
 
 
 def get_heartbeat_interval_seconds(config: dict[str, Any]) -> int:
     runtime_config = config.get("runtime", {})
-    raw_value = runtime_config.get("heartbeatIntervalSeconds", 30) if isinstance(runtime_config, dict) else 30
+    raw_value = (
+        runtime_config.get("heartbeatIntervalSeconds", 30)
+        if isinstance(runtime_config, dict)
+        else 30
+    )
 
     try:
         interval = int(raw_value)
@@ -672,7 +779,9 @@ def heartbeat_loop(config: dict[str, Any], stop_event: threading.Event) -> None:
     log("INFO", "Agent Heartbeat beendet.")
 
 
-def command_poll_loop(config: dict[str, Any], stop_event: threading.Event, speak: Any = None) -> None:
+def command_poll_loop(
+    config: dict[str, Any], stop_event: threading.Event, speak: Any = None
+) -> None:
     log("INFO", "Backend Command Polling gestartet.")
 
     while not stop_event.is_set():
@@ -685,7 +794,11 @@ def command_poll_loop(config: dict[str, Any], stop_event: threading.Event, speak
                 handle_backend_command(config, command, speak=speak)
 
         except Exception as exc:
-            log("ERROR", f"Command Polling Fehler: {exc}", errorCode="command_poll_failed")
+            log(
+                "ERROR",
+                f"Command Polling Fehler: {exc}",
+                errorCode="command_poll_failed",
+            )
 
         stop_event.wait(5)
 
@@ -754,14 +867,19 @@ def main() -> None:
         wake_words = config.get("wakeWords", [])
 
     voice_enabled = voice_status is not None and voice_status.enabled
-    speak: Any = _build_speak_fn(config) if voice_enabled else (lambda text: None)
+
+    def speak(_text: str) -> None:
+        pass
 
     stop_event = threading.Event()
 
     log("INFO", "JARVIS Local Client gestartet.")
 
     if voice_enabled:
-        log("INFO", f"Voice-Modus aktiv: stt={voice_status.sttProvider}, tts={voice_status.ttsProvider}")
+        log(
+            "INFO",
+            f"Voice-Modus aktiv: stt={voice_status.sttProvider}, tts={voice_status.ttsProvider}",
+        )
     else:
         log("INFO", "Textmodus aktiv. Tippe 'guten morgen jarvis' oder 'exit'.")
 
@@ -783,7 +901,11 @@ def main() -> None:
             stop_agent=request_stop,
         )
     except Exception as exc:
-        log("ERROR", f"Lokale Agent-API konnte nicht gestartet werden: {exc}", errorCode="local_api_start_failed")
+        log(
+            "ERROR",
+            f"Lokale Agent-API konnte nicht gestartet werden: {exc}",
+            errorCode="local_api_start_failed",
+        )
 
     polling_thread = threading.Thread(
         target=command_poll_loop,
@@ -810,7 +932,9 @@ def main() -> None:
 
             def on_voice_command(cmd: str) -> None:
                 normalized = normalize_command(cmd)
-                should_stop = _handle_local_command(normalized, config, wake_words, stop_event, tts.speak)
+                should_stop = _handle_local_command(
+                    normalized, config, wake_words, stop_event, tts.speak
+                )
                 if should_stop:
                     stop_event.set()
 
@@ -828,14 +952,20 @@ def main() -> None:
             tts.stop()
 
         except Exception as exc:
-            log("ERROR", f"Voice-Modus fehlgeschlagen: {exc}. Fallback auf Textmodus.", errorCode="voice_mode_failed")
+            log(
+                "ERROR",
+                f"Voice-Modus fehlgeschlagen: {exc}. Fallback auf Textmodus.",
+                errorCode="voice_mode_failed",
+            )
             voice_enabled = False
 
     if not voice_enabled:
         while not stop_event.is_set():
             try:
                 command = normalize_command(input("> "))
-                should_stop = _handle_local_command(command, config, wake_words, stop_event, speak)
+                should_stop = _handle_local_command(
+                    command, config, wake_words, stop_event, speak
+                )
                 if should_stop:
                     break
 
