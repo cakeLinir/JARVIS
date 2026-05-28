@@ -4,6 +4,7 @@ export type RealtimeClientSecretRequest = {
   model?: string;
   voice?: string;
   instructions?: string;
+  modalities?: string[];
 };
 
 export type ChatMessage = {
@@ -47,30 +48,38 @@ async function openAiFetch<T>(endpoint: string, body: unknown): Promise<T> {
   }
 
   if (!response.ok) {
-    const message = typeof parsed === "object" && parsed !== null && "error" in parsed
-      ? JSON.stringify(parsed)
-      : raw;
+    const message =
+      typeof parsed === "object" && parsed !== null && "error" in parsed
+        ? JSON.stringify(parsed)
+        : raw;
     throw new Error(`OpenAI HTTP ${response.status}: ${message}`);
   }
 
   return parsed as T;
 }
 
-export async function createRealtimeClientSecret(input: RealtimeClientSecretRequest = {}) {
+// ✅ FIX: Korrekter Endpoint /realtime/sessions (nicht /realtime/client_secrets)
+// ✅ FIX: Korrektes Request-Body-Format ohne session-Wrapper und ohne audio.output-Nesting
+export async function createRealtimeClientSecret(
+  input: RealtimeClientSecretRequest = {}
+) {
   const sessionConfig = {
-    session: {
-      type: "realtime",
-      model: input.model ?? config.realtimeModel,
-      instructions: input.instructions ?? config.realtimeInstructions,
-      audio: {
-        output: {
-          voice: input.voice ?? config.realtimeVoice
-        }
-      }
+    model: input.model ?? config.realtimeModel,
+    voice: input.voice ?? config.realtimeVoice,
+    instructions: input.instructions ?? config.realtimeInstructions,
+    modalities: input.modalities ?? ["text", "audio"],
+    input_audio_transcription: {
+      model: "whisper-1"
+    },
+    turn_detection: {
+      type: "server_vad",
+      threshold: 0.5,
+      prefix_padding_ms: 300,
+      silence_duration_ms: 500
     }
   };
 
-  return openAiFetch("/realtime/client_secrets", sessionConfig);
+  return openAiFetch("/realtime/sessions", sessionConfig);
 }
 
 export async function createChatCompletion(input: ChatRequest) {
