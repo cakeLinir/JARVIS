@@ -7,6 +7,7 @@
 param(
   [Parameter(Position = 0)] [string]$Area,
   [Parameter(Position = 1)] [string]$Action,
+  [Parameter(Position = 2)] [string]$SubAction,
   [string]$RepoRoot = (Resolve-Path ".").Path,
   # Backend
   [switch]$Build,
@@ -55,10 +56,10 @@ param(
 $ErrorActionPreference = "Stop"
 $ScriptsDir = Join-Path (Resolve-Path $RepoRoot).Path "scripts"
 
-function Invoke-Sub([string]$Script, [hashtable]$Args = @{}) {
+function Invoke-Sub([string]$Script, [hashtable]$Params = @{}) {
   $path = Join-Path $ScriptsDir $Script
   if (-not (Test-Path $path)) { Write-Host "[ERROR] Skript nicht gefunden: $Script" -ForegroundColor Red; exit 2 }
-  & $path @Args; exit $LASTEXITCODE
+  & $path @Params; exit $LASTEXITCODE
 }
 
 function Write-Usage {
@@ -89,12 +90,11 @@ switch ($areaKey) {
     Invoke-Sub "04_backend.ps1" $a
   }
   "task" {
-    # jarvis.ps1 task backend install → Area=task, Action=backend, taskAction aus $PSBoundParameters fehlt
-    # Der dritte Positionsparameter landet in $args (da param() nur Position 0+1 deklariert)
+    # jarvis.ps1 task backend install → Area=task, Action=backend, SubAction=install (Position 2)
     $taskTarget = $actionKey
-    $taskAction = ($args | Select-Object -First 1)
+    $taskAction = $SubAction.Trim().ToLowerInvariant()
     if (-not $taskAction) { Write-Usage; exit 2 }
-    $a = @{ Target=$taskTarget; Action=$taskAction.ToLowerInvariant(); RepoRoot=$RepoRoot;
+    $a = @{ Target=$taskTarget; Action=$taskAction; RepoRoot=$RepoRoot;
     AtLogon=$AtLogon; AtStartup=$AtStartup; EveryMinutes=$EveryMinutes; BuildOnRestart=$BuildOnRestart }
     Invoke-Sub "07_task.ps1" $a
   }

@@ -113,8 +113,8 @@ export async function todoRoutes(server: FastifyInstance) {
         const todo = createTodo({
             title: parsed.data.title,
             description: parsed.data.description,
-            status: parsed.data.status as TodoStatus | undefined,
-            priority: parsed.data.priority as TodoPriority | undefined,
+            status: (parsed.data.status ?? "open") as TodoStatus,
+            priority: (parsed.data.priority ?? 2) as TodoPriority,
             category: parsed.data.category,
             dueDate: parsed.data.dueDate,
             dueTime: parsed.data.dueTime,

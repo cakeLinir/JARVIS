@@ -122,7 +122,7 @@ export function getStreamingAdvice(date: string): StreamingAdvice {
     }
 
     // ── Tagschicht / FAKT Früh / FAKT Spät heute ────────────────────────────
-    else if (shift && shift.type !== "frei" && !recoveryNeeded) {
+    else if (shift && !recoveryNeeded) {
         const afterShiftMin = toMin(shift.endTime) + 30;
         const afterShift = fromMin(afterShiftMin);
         reasons.push(`Heute: ${shift.label} (${shift.startTime}–${shift.endTime}). Frei ab ca. ${afterShift}.`);

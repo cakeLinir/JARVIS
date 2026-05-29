@@ -119,7 +119,7 @@ export function createTodo(
 type TodoUpdateInput = Partial<Pick<
     JarvisTodo,
     "title" | "description" | "status" | "priority" | "category" |
-    "dueDate" | "dueTime" | "reminderMinutes" | "recurrence" | "shiftId" | "notes"
+    "dueDate" | "dueTime" | "reminderMinutes" | "recurrence" | "shiftId"
 >>;
 
 export function updateTodo(
