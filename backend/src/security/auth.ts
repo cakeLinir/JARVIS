@@ -466,10 +466,14 @@ export async function requireAnyJarvisAuth(
   request: FastifyRequest,
   reply: FastifyReply
 ) {
-  return requireAnyToken(
-    request,
-    reply,
-    [config.agentToken, config.botBridgeToken, config.dashboardToken],
-    "invalid_token"
-  );
+  const bearerToken = extractBearerToken(request);
+  if (
+    tokenMatches(bearerToken, config.agentToken) ||
+    tokenMatches(bearerToken, config.botBridgeToken) ||
+    tokenMatches(bearerToken, config.dashboardToken) ||
+    getDashboardSession(request, reply) !== null
+  ) {
+    return;
+  }
+  return reply.code(401).send({ error: "missing_authorization_header" });
 }
