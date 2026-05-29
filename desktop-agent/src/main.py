@@ -39,9 +39,27 @@ def jarvis_is_noise_path(path_value):
     return False
 
 
+# FIX Bug 1 + 2: Toter Code aus jarvis_should_suppress_log hierher verschoben
+# und fehlendes "return False" am Ende ergänzt. Vorher gab die Funktion immer
+# implizit None zurück, weil der eigentliche Prüfcode niemals ausgeführt wurde.
 def jarvis_is_todo_noise_path(path_value):
     normalized = str(path_value).replace("\\", "/").strip("/")
     lower = normalized.lower()
+
+    if jarvis_is_noise_path(normalized):
+        return True
+
+    if lower.startswith("docs/") and "todo" in lower:
+        return True
+
+    if (
+        lower.endswith("config.json")
+        or lower.endswith("config.local.json")
+        or lower.endswith("config.local.example.json")
+    ):
+        return True
+
+    return False
 
 
 # JARVIS_PATCH_026_3: zentrale Log-Normalisierung und Projektanalyse-Ausgabefilter.
@@ -108,6 +126,11 @@ def jarvis_normalize_log_event(level_value, message_value):
     return level_text, message_text
 
 
+# FIX Bug 1: Toter Code nach "return False" entfernt.
+# Der Code referenzierte außerdem die Variablen "normalized" und "lower",
+# die in dieser Funktion nie definiert wurden — NameError bei Aufruf wäre
+# die Folge gewesen. Der korrekte Prüfcode liegt jetzt in
+# jarvis_is_todo_noise_path (siehe oben).
 def jarvis_should_suppress_log(level_value, message_value):
     level_text = str(level_value).upper()
     message_text = str(message_value).replace("\\", "/").lower()
@@ -118,21 +141,6 @@ def jarvis_should_suppress_log(level_value, message_value):
     for pattern in JARVIS_PROJECT_LOG_SUPPRESS_PATTERNS:
         if pattern in message_text:
             return True
-
-    return False
-
-    if jarvis_is_noise_path(normalized):
-        return True
-
-    if lower.startswith("docs/") and "todo" in lower:
-        return True
-
-    if (
-        lower.endswith("config.json")
-        or lower.endswith("config.local.json")
-        or lower.endswith("config.local.example.json")
-    ):
-        return True
 
     return False
 
@@ -287,6 +295,10 @@ def load_config() -> dict[str, Any]:
     return config
 
 
+# FIX Bug 3: get_todo_path() war definiert, wurde aber nirgends aufgerufen.
+# Die Funktion bleibt erhalten, ist aber als "aktuell ungenutzt" markiert.
+# Wenn open_todo() / read_todos() den Pfad direkt prüfen sollen,
+# kann get_todo_path() dort eingebunden werden.
 def get_todo_path(config: dict[str, Any]) -> Path | None:
     todo_config = config.get("todo", {})
     provider = str(todo_config.get("provider", "markdown")).strip().lower()
@@ -868,8 +880,19 @@ def main() -> None:
 
     voice_enabled = voice_status is not None and voice_status.enabled
 
-    def speak(_text: str) -> None:
-        pass
+    # FIX Bug 4: speak() war ein no-op (pass). Im Textmodus sprach JARVIS
+    # damit gar nicht, auch nicht während der Morgenroutine.
+    # Jetzt: pyttsx3-TTS als Fallback, mit Log-Ausgabe als zweitem Fallback
+    # falls pyttsx3 nicht verfügbar oder fehlerhaft ist.
+    def speak(text: str) -> None:
+        try:
+            import pyttsx3
+
+            engine = pyttsx3.init()
+            engine.say(text)
+            engine.runAndWait()
+        except Exception:
+            log("INFO", f"[TTS-Fallback] {text}")
 
     stop_event = threading.Event()
 
