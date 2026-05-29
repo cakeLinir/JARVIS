@@ -226,7 +226,7 @@ export function ShiftsPage({ onAuthRequired }: Props) {
                 </div>
 
                 {/* Kalender */}
-                <Panel title="4-Wochen-Übersicht" action={
+                <Panel title="4-Wochen-Übersicht" actions={
                     <span className="muted" style={{ fontSize: 13 }}>
                         {new Date(`${refDate}T00:00:00`).toLocaleDateString("de-DE", { month: "long", year: "numeric" })}
                     </span>
@@ -285,7 +285,7 @@ export function ShiftsPage({ onAuthRequired }: Props) {
                 )}
 
                 {/* Schicht-Liste */}
-                <Panel title="Eingetragene Schichten" action={
+                <Panel title="Eingetragene Schichten" actions={
                     <span className="muted" style={{ fontSize: 13 }}>{visibleShifts.length} im angezeigten Zeitraum</span>
                 }>
                     {visibleShifts.length === 0 ? (

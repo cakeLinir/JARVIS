@@ -53,7 +53,7 @@ export default function App() {
 
   // Login
   if (!authed) {
-    return <LoginPage onLogin={() => setAuthed(true)} />;
+    return <LoginPage />;
   }
 
   return (

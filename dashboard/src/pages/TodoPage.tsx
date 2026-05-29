@@ -239,7 +239,7 @@ function TodoDetailModal({ todo, onClose, onUpdated }: {
 
             <div className="kv-list" style={{ marginBottom: 16 }}>
                 {[
-                    ["Status", <StatusBadge key="s" status={todo.status} />],
+                    ["Status", <StatusBadge key="s" value={todo.status} />],
                     ["Priorität", <span key="p" className={`badge ${PRIORITY_COLORS[todo.priority as TodoPriority] ?? "info"}`}>{PRIORITY_LABELS[todo.priority as TodoPriority]}</span>],
                     ["Kategorie", todo.category ?? "—"],
                     ["Fällig", todo.dueDate ? `${fmtDate(todo.dueDate)}${todo.dueTime ? ` · ${todo.dueTime}` : ""}` : "—"],
@@ -443,7 +443,7 @@ export function TodoPage({ onAuthRequired }: Props) {
                 </div>
 
                 {/* Todo-Liste */}
-                <Panel title="Todos" action={
+                <Panel title="Todos" actions={
                     <span className="muted" style={{ fontSize: 13 }}>
                         {filterStatus ? STATUS_LABELS[filterStatus as TodoStatus] : "Alle"} · {todos.length} Einträge
                     </span>
@@ -497,7 +497,7 @@ export function TodoPage({ onAuthRequired }: Props) {
                                         <span className={`badge ${PRIORITY_COLORS[todo.priority as TodoPriority] ?? "info"}`}>
                                             P{todo.priority}
                                         </span>
-                                        <StatusBadge status={todo.status} />
+                                        <StatusBadge value={todo.status} />
                                         {confirmDelete === todo.id ? (
                                             <>
                                                 <button className="btn-danger" onClick={() => void handleDelete(todo.id)}>
