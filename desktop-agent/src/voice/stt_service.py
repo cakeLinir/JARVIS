@@ -1,8 +1,6 @@
 from __future__ import annotations
 
-import tempfile
-import threading
-import wave
+import re
 from typing import Any
 
 import numpy as np
@@ -23,10 +21,15 @@ class STTService:
         language_tag = str(voice_cfg.get("language", "de-DE"))
         self._language = language_tag.split("-")[0].lower()  # "de"
         self._model_size = str(voice_cfg.get("sttModel", "medium"))
-        self._initial_prompt = str(voice_cfg.get("sttInitialPrompt", "Jarvis JARVIS"))
+        self._initial_prompt = str(voice_cfg.get("sttInitialPrompt", ""))
         self._silence_secs = float(voice_cfg.get("sttSilenceSeconds", 1.2))
         self._max_secs = float(voice_cfg.get("sttMaxDurationSeconds", 12.0))
         self._timeout_secs = float(voice_cfg.get("sttTimeoutSeconds", 8.0))
+        # Halluzinations-Filter: Segmente mit zu hoher no_speech_prob oder zu niedrigem logprob verwerfen
+        self._no_speech_threshold = float(voice_cfg.get("sttNoSpeechThreshold", 0.6))
+        self._logprob_threshold = float(voice_cfg.get("sttLogprobThreshold", -0.7))
+        # Mikrofon-Schwelle: höherer Multiplikator = weniger Fehlauslöser durch Umgebungsgeräusche
+        self._threshold_multiplier = float(voice_cfg.get("sttThresholdMultiplier", 5.0))
 
         # Modell laden (erster Start lädt ~1.5GB herunter)
         self._model = WhisperModel(
@@ -59,8 +62,7 @@ class STTService:
             pa.terminate()
 
         ambient = float(np.mean(levels)) if levels else 0.01
-        # Schwelle = 3x Umgebungsgeräusch, mindestens 0.005
-        return max(0.005, ambient * 3.0)
+        return max(0.005, ambient * self._threshold_multiplier)
 
     def _record(self, timeout: float, max_duration: float, silence_secs: float) -> np.ndarray | None:
         """Nimmt auf bis Stille erkannt wird. Gibt float32-Array zurück oder None."""
@@ -128,12 +130,34 @@ class STTService:
         segments, _ = self._model.transcribe(
             audio,
             language=self._language,
-            initial_prompt=self._initial_prompt,
+            initial_prompt=self._initial_prompt or None,
             beam_size=5,
             vad_filter=True,
+            vad_parameters={"threshold": 0.5, "min_silence_duration_ms": 300},
         )
-        text = " ".join(s.text for s in segments).strip()
-        return text.lower() if text else None
+
+        parts: list[str] = []
+        for seg in segments:
+            # Segment verwerfen wenn Whisper selbst sagt: wahrscheinlich kein Mensch
+            if seg.no_speech_prob > self._no_speech_threshold:
+                continue
+            # Segment verwerfen wenn Konfidenz zu niedrig (typisches Halluzinationsmuster)
+            if seg.avg_logprob < self._logprob_threshold:
+                continue
+            parts.append(seg.text)
+
+        text = " ".join(parts).strip()
+        if not text:
+            return None
+
+        # Wiederholungs-Halluzination: Satzzeichen entfernen, dann prüfen ob alle Wörter gleich.
+        # Ohne Stripping würde "Jarvis, Jarvis" → ["jarvis,", "jarvis"] → 2 verschiedene Einträge.
+        clean = re.sub(r"[^\w\s]", "", text.lower())
+        words = clean.split()
+        if len(words) > 1 and len(set(words)) == 1:
+            return None
+
+        return text.lower()
 
 
 def create_stt(config: dict[str, Any]) -> STTService:

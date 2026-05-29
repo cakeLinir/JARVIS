@@ -1019,6 +1019,18 @@ def main() -> None:
         tts_service = create_tts(config)
     except Exception as exc:
         log("WARN", f"TTS konnte nicht initialisiert werden: {exc}")
+        # Automatischer Fallback auf SAPI wenn z.B. edge-tts fehlt
+        voice_cfg = config.get("voice", {})
+        if isinstance(voice_cfg, dict) and voice_cfg.get("ttsProvider", "") != "sapi":
+            try:
+                fallback_cfg = {
+                    **config,
+                    "voice": {**voice_cfg, "ttsProvider": "sapi"},
+                }
+                tts_service = create_tts(fallback_cfg)
+                log("INFO", "TTS: Fallback auf SAPI.")
+            except Exception as fb_exc:
+                log("WARN", f"TTS SAPI-Fallback fehlgeschlagen: {fb_exc}")
 
     def speak(text: str) -> None:
         if tts_service:
@@ -1073,6 +1085,26 @@ def main() -> None:
             f"Lokale Agent-API konnte nicht gestartet werden: {exc}",
             errorCode="local_api_start_failed",
         )
+
+    try:
+        from scheduler import RoutineScheduler
+
+        def _dispatch_scheduled_routine(routine: dict[str, Any]) -> None:
+            for action in routine.get("actions", []):
+                if action == "morning_routine":
+                    run_morning_routine(config, speak=speak)
+                else:
+                    log("WARN", f"Unbekannte Routine-Aktion: {action}", errorCode="unknown_routine_action")
+
+        routine_scheduler = RoutineScheduler(
+            config=config,
+            log=log,
+            run_routine=_dispatch_scheduled_routine,
+            stop_event=stop_event,
+        )
+        routine_scheduler.start()
+    except Exception as exc:
+        log("WARN", f"Routine-Scheduler konnte nicht gestartet werden: {exc}")
 
     polling_thread = threading.Thread(
         target=command_poll_loop,

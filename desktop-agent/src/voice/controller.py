@@ -65,6 +65,14 @@ def _stt_available(provider: str) -> bool:
     return False
 
 
+def _oww_available() -> bool:
+    try:
+        import openwakeword  # noqa: F401
+        return True
+    except ImportError:
+        return False
+
+
 def get_voice_status(config: dict[str, Any]) -> VoiceStatus:
     voice_cfg = config.get("voice", {})
     if not isinstance(voice_cfg, dict):
@@ -103,7 +111,17 @@ def get_voice_status(config: dict[str, Any]) -> VoiceStatus:
             wakeWordEnabled=False,
             sttProvider=stt_provider,
             ttsProvider=tts_provider,
-            reason=f"STT '{stt_provider}' nicht verfügbar. Installiere: pip install SpeechRecognition pyaudio",
+            reason=f"STT '{stt_provider}' nicht verfügbar. Installiere: pip install faster-whisper pyaudio",
+        )
+
+    if wake_word_enabled and not _oww_available():
+        return VoiceStatus(
+            enabled=False,
+            mode=mode,
+            wakeWordEnabled=False,
+            sttProvider=stt_provider,
+            ttsProvider=tts_provider,
+            reason="openWakeWord nicht verfügbar. Installiere: pip install openwakeword",
         )
 
     return VoiceStatus(

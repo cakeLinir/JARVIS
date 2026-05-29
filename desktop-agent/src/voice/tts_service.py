@@ -126,6 +126,15 @@ class TTSService:
     # ── Edge-TTS-Backend ──────────────────────────────────────────────────
 
     def _worker_edge(self) -> None:
+        try:
+            import edge_tts  # noqa: F401 — früh prüfen, damit Fehler sichtbar ist
+        except ImportError:
+            self._error = RuntimeError(
+                "edge-tts nicht installiert. Führe aus: pip install edge-tts"
+            )
+            self._ready.set()
+            return
+
         import asyncio
 
         self._ready.set()
@@ -137,8 +146,8 @@ class TTSService:
                 break
             try:
                 asyncio.run(self._speak_edge(str(item)))
-            except Exception:
-                pass
+            except Exception as exc:
+                print(f"[TTS-Edge] Wiedergabefehler: {exc}", flush=True)
             finally:
                 self._queue.task_done()
 
@@ -155,9 +164,12 @@ class TTSService:
         mci = ctypes.windll.winmm.mciSendStringW
         try:
             await communicate.save(tmp_path)
-            # Force-close stale alias, dann öffnen und synchron abspielen
             mci("close jarvis_audio", None, 0, None)
-            mci(f'open "{tmp_path}" type mpegvideo alias jarvis_audio', None, 0, None)
+            ret = mci(
+                f'open "{tmp_path}" type mpegvideo alias jarvis_audio', None, 0, None
+            )
+            if ret != 0:
+                raise RuntimeError(f"MCI open fehlgeschlagen (Code {ret})")
             mci("play jarvis_audio wait", None, 0, None)
         finally:
             mci("close jarvis_audio", None, 0, None)

@@ -1,12 +1,53 @@
-# Desktop Agent Requirements
+# ─────────────────────────────────────────────────────────────────────────────
+# JARVIS Desktop Agent – Python-Abhängigkeiten
+# Getestet mit Python 3.11+ auf Windows 10/11
+#
+# Installation (im desktop-agent-Ordner):
+#   py -3 -m venv .venv
+#   .venv\Scripts\activate
+#   pip install -r requirements.txt
+#
+# Hinweis zu PyAudio auf Windows:
+#   Seit Version 0.2.14 gibt es fertige Windows-Wheels auf PyPI.
+#   Falls "pip install pyaudio" trotzdem fehlschlägt:
+#   → Microsoft C++ Build Tools installieren (https://visualstudio.microsoft.com/visual-cpp-build-tools/)
+# ─────────────────────────────────────────────────────────────────────────────
 
-psutil>=5.9,<7.0
+
+# ── Windows / System ──────────────────────────────────────────────────────────
+# pywin32: SAPI TTS (win32com.client, pythoncom) + Windows-Fensterverwaltung
 pywin32>=306
-pyttsx3>=2.90
-# STT: faster-whisper (lokal, offline, sehr gute Qualität für Deutsch)
+# psutil: Prozess- und Fensterverwaltung (window_manager.py)
+psutil>=5.9,<7.0
+
+
+# ── Spracheingabe (STT) ───────────────────────────────────────────────────────
+# faster-whisper: lokale, offline Spracherkennung (Deutsch, medium-Modell ~1.5 GB)
 faster-whisper>=1.0,<2.0
+# numpy: Audio-Verarbeitung für STT und Wake-Word
 numpy>=1.24
-# PyAudio für Mikrofon-Aufnahme: pip install pyaudio
+# pyaudio: Mikrofon-Zugriff (STT + Wake-Word-Stream)
 pyaudio>=0.2.14
+
+
+# ── Wake-Word-Erkennung ───────────────────────────────────────────────────────
+# openWakeWord: dedizierter Wake-Word-Detektor (hey_jarvis-Modell, ONNX-basiert)
+# Beim ersten Start lädt er das Modell automatisch herunter (~10 MB).
+openwakeword>=0.6
+
+
+# ── Sprachausgabe (TTS) ───────────────────────────────────────────────────────
+# edge-tts: Microsoft Neural TTS (de-DE-ConradNeural, de-DE-KillianNeural …)
+# Benötigt Internetzugang. Fallback: Windows SAPI (pywin32, s.o.)
+edge-tts>=7.0
+
+
+# ── KI-Gehirn (Claude API) ───────────────────────────────────────────────────
+# anthropic: Anthropic SDK für Claude Tool Use (ai_brain.py)
+# API-Key in config.json (anthropicApiKey) oder ENV: ANTHROPIC_API_KEY
+anthropic>=0.50
+
+
+# ── Netzwerk / Backend ────────────────────────────────────────────────────────
+# websockets: WebSocket-Verbindung zum VPS-Backend
 websockets>=12,<16
-# openai

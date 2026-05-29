@@ -3,31 +3,18 @@ from __future__ import annotations
 import threading
 from typing import Any, Callable
 
-from voice.phrases import get_stop_phrases, normalize_phrase, is_morning_phrase
+import numpy as np
+import pyaudio
+
+from voice.phrases import get_stop_phrases, is_morning_phrase, normalize_phrase
 
 LogFn = Callable[[str, str], None]
 CommandFn = Callable[[str], None]
 
-# Google STT (de-DE) kennt "Jarvis" nicht. Mögliche Transkriptionen auffangen.
-_JARVIS_VARIANTS = frozenset({
-    "jarvis", "jar", "jarvi", "paris", "jarfis", "jarbis", "jabis",
-    "jar vis", "jar-vis",
-})
-
-# Begrüßungspräfixe VOR einem Jarvis-Variant
-_GREETING_PREFIXES = frozenset({
-    "hallo", "hey", "hi", "hello", "guten tag", "guten abend", "moin",
-})
-
-# Begrüßungsworte die als Follow-Up nach bare "jarvis" kommen können
-_GREETING_FOLLOWUP_WORDS = frozenset({
-    "hallo", "hey", "hi", "hello", "moin",
-})
-
-# Morgenpräfixe — auch ohne Jarvis-Suffix als Morgen-Trigger erkannt
-_MORNING_PREFIXES = frozenset({
-    "guten morgen",
-})
+# openWakeWord erwartet 16kHz Int16-Audio in 80ms-Chunks (1280 Samples)
+_OWW_RATE = 16000
+_OWW_CHUNK = 1280
+_OWW_FORMAT = pyaudio.paInt16
 
 
 class WakeWordDetector:
@@ -48,90 +35,9 @@ class WakeWordDetector:
         self._stop_event = threading.Event()
         self._thread: threading.Thread | None = None
 
-    # ── Erkennung ──────────────────────────────────────────────────────────
-
-    def _is_jarvis_variant(self, word: str) -> bool:
-        return word in _JARVIS_VARIANTS
-
-    def _contains_wake_word(self, text: str) -> bool:
-        normalized = normalize_phrase(text)
-        words = normalized.split()
-
-        # Letztes Wort oder irgendein Wort ist Jarvis-Variante
-        if words and self._is_jarvis_variant(words[-1]):
-            return True
-        if any(self._is_jarvis_variant(w) for w in words):
-            return True
-
-        # Morgenpräfix allein → Jarvis wurde von STT verschluckt
-        if any(normalized == p or normalized.startswith(p + " ") for p in _MORNING_PREFIXES):
-            return True
-
-        return False
-
-    def _is_morning_trigger(self, text: str) -> bool:
-        """True wenn der Text eine Morgenroutine auslösen soll."""
-        normalized = normalize_phrase(text)
-        if is_morning_phrase(text):
-            return True
-        if any(normalized == p or normalized.startswith(p) for p in _MORNING_PREFIXES):
-            return True
-        return False
-
-    def _is_complete_greeting(self, text: str) -> bool:
-        """True wenn der Text eine vollständige Begrüßung ist (kein Befehl dahinter)."""
-        normalized = normalize_phrase(text)
-        words = normalized.split()
-
-        if not words:
-            return False
-
-        # Bare "jarvis"-Variante allein → nicht als Greeting, sondern Aktivierung
-        if len(words) == 1 and self._is_jarvis_variant(words[0]):
-            return False
-
-        # Morgenpräfix (mit oder ohne Jarvis) → KEIN greeting, sondern Routine
-        if self._is_morning_trigger(text):
-            return False
-
-        # Präfix + Jarvis-Variante → Begrüßung
-        last = words[-1]
-        prefix = " ".join(words[:-1])
-        if self._is_jarvis_variant(last) and prefix in _GREETING_PREFIXES:
-            return True
-
-        return False
-
-    def _is_greeting_followup(self, text: str) -> bool:
-        """True wenn der Text nach bare 'jarvis' eine nachgereichte Begrüßung ist.
-
-        Tritt auf wenn der User 'Hallo Jarvis' sagt, STT aber 'jarvis' und
-        danach 'hallo jar' als zwei getrennte Erkennungen liefert.
-        """
-        normalized = normalize_phrase(text)
-        words = normalized.split()
-
-        if not words:
-            return False
-
-        # Erstes Wort ist ein Begrüßungswort
-        if words[0] in _GREETING_FOLLOWUP_WORDS:
-            return True
-
-        # Begrüßung + Jarvis-Variante (z.B. "hallo jar")
-        if len(words) >= 2 and self._is_jarvis_variant(words[-1]) and words[0] in _GREETING_FOLLOWUP_WORDS:
-            return True
-
-        return False
-
-    def _extract_inline_command(self, text: str) -> str:
-        """Extrahiert Befehlsanteil nach dem Jarvis-Variant, falls vorhanden."""
-        normalized = normalize_phrase(text)
-        words = normalized.split()
-        for i, word in enumerate(words):
-            if self._is_jarvis_variant(word) and i < len(words) - 1:
-                return " ".join(words[i + 1:]).strip().lstrip(",").strip()
-        return ""
+        voice_cfg = config.get("voice", {}) if isinstance(config, dict) else {}
+        self._model_name = str(voice_cfg.get("wakeWordModel", "hey_jarvis"))
+        self._threshold = float(voice_cfg.get("wakeWordThreshold", 0.5))
 
     # ── Hilfsmethoden ──────────────────────────────────────────────────────
 
@@ -142,81 +48,116 @@ class WakeWordDetector:
         except Exception:
             pass
 
+    def _flush_stream(self, stream: Any, chunks: int = 8) -> None:
+        """Veraltete Audio-Daten aus dem PyAudio-Puffer werfen."""
+        for _ in range(chunks):
+            try:
+                stream.read(_OWW_CHUNK, exception_on_overflow=False)
+            except Exception:
+                break
+
+    def _listen_for_command(self) -> str | None:
+        self._speak_and_wait("Ja?")
+        return self._stt.listen_once()
+
     # ── Haupt-Loop ─────────────────────────────────────────────────────────
 
     def _loop(self) -> None:
-        self._log("INFO", "Wake-Word Erkennung aktiv. Sage 'Jarvis' zum Aktivieren.")
+        # Modell laden (lädt ONNX-Datei beim ersten Start herunter)
+        try:
+            from openwakeword.model import Model
+
+            model = Model(
+                wakeword_models=[self._model_name],
+                inference_framework="onnx",
+            )
+        except Exception as exc:
+            self._log(
+                "ERROR",
+                f"openWakeWord konnte nicht geladen werden: {exc} "
+                f"— Installiere mit: pip install openwakeword",
+                errorCode="oww_load_failed",
+            )
+            return
+
+        pa = pyaudio.PyAudio()
+        stream = pa.open(
+            format=_OWW_FORMAT,
+            channels=1,
+            rate=_OWW_RATE,
+            input=True,
+            frames_per_buffer=_OWW_CHUNK,
+        )
+
+        self._log(
+            "INFO",
+            f"Wake-Word Erkennung aktiv ({self._model_name}, "
+            f"threshold={self._threshold}). Sage 'Hey Jarvis'.",
+        )
         self._speak_and_wait("JARVIS ist bereit.")
 
-        while not self._stop_event.is_set():
-            text = self._stt.listen_once()
+        try:
+            while not self._stop_event.is_set():
+                try:
+                    raw = stream.read(_OWW_CHUNK, exception_on_overflow=False)
+                except Exception:
+                    continue
 
-            if not text:
-                continue
+                audio = np.frombuffer(raw, dtype=np.int16)
+                prediction = model.predict(audio)
 
-            self._log("STT", f"Gehört: {text}")
-            normalized = normalize_phrase(text)
+                triggered = any(
+                    score >= self._threshold for score in prediction.values()
+                )
+                if not triggered:
+                    continue
 
-            # Stop-Phrase
-            if normalized in self._stop_phrases:
-                self._log("INFO", "Stop-Phrase erkannt.")
-                self._speak_and_wait("JARVIS wird beendet.")
-                self._on_command("exit")
-                break
+                scores_str = ", ".join(
+                    f"{k}={v:.2f}" for k, v in prediction.items()
+                )
+                self._log("INFO", f"Wake-Word erkannt: {scores_str}")
+                model.reset()
 
-            if not self._contains_wake_word(text):
-                continue
+                # Puffer leeren bevor STT hört (verhindert TTS-Echo-Feedback)
+                self._flush_stream(stream)
 
-            # Morgenroutine (auch wenn "jarvis" von STT verschluckt wurde)
-            if self._is_morning_trigger(text):
-                self._log("INFO", "Morgenroutine erkannt.")
-                self._on_command("guten morgen jarvis")
+                command = self._listen_for_command()
+
+                # Nach dem Sprechen und Hören wieder Puffer leeren
+                self._flush_stream(stream)
+                model.reset()
+
+                if not command:
+                    self._speak_and_wait("Ich habe nichts verstanden.")
+                    continue
+
+                self._log("STT", f"Befehl: {command}")
+                normalized = normalize_phrase(command)
+
+                if normalized in self._stop_phrases:
+                    self._log("INFO", "Stop-Phrase erkannt.")
+                    self._speak_and_wait("JARVIS wird beendet.")
+                    self._on_command("exit")
+                    break
+
+                if is_morning_phrase(command):
+                    self._on_command("guten morgen jarvis")
+                    self._tts.wait_done()
+                    continue
+
+                self._on_command(normalized)
                 self._tts.wait_done()
-                continue
 
-            # Vollständige Begrüßung: "Hallo Jarvis", "Hallo Jar" etc.
-            if self._is_complete_greeting(text):
-                self._log("INFO", f"Begrüßung erkannt: {normalized}")
-                self._speak_and_wait("Ja, ich bin bereit.")
-                continue
-
-            # Inline-Befehl: "Jarvis, öffne Spotify"
-            inline = self._extract_inline_command(text)
-            if inline:
-                self._log("INFO", f"Inline-Befehl: {inline}")
-                self._speak_and_wait("Einen Moment.")
-                self._on_command(inline)
-                self._tts.wait_done()
-                continue
-
-            # Bare "jarvis" → nach Befehl fragen
-            self._speak_and_wait("Ja?")
-
-            command = self._stt.listen_once()
-            if not command:
-                self._speak_and_wait("Ich habe nichts verstanden.")
-                continue
-
-            self._log("STT", f"Befehl nach Wake: {command}")
-
-            # Nachgereichte Begrüßung abfangen ("hallo jar" nach bare "jarvis")
-            if self._is_greeting_followup(command) or self._is_complete_greeting(command):
-                self._speak_and_wait("Ja, ich bin bereit.")
-                continue
-
-            # Morgenroutine als Follow-Up
-            if self._is_morning_trigger(command):
-                self._log("INFO", "Morgenroutine als Follow-Up erkannt.")
-                self._on_command("guten morgen jarvis")
-                self._tts.wait_done()
-                continue
-
-            self._on_command(normalize_phrase(command))
-            self._tts.wait_done()
+        finally:
+            stream.stop_stream()
+            stream.close()
+            pa.terminate()
 
     def start(self) -> None:
         self._stop_event.clear()
-        self._thread = threading.Thread(target=self._loop, daemon=True, name="wake-word")
+        self._thread = threading.Thread(
+            target=self._loop, daemon=True, name="wake-word"
+        )
         self._thread.start()
 
     def stop(self) -> None:
