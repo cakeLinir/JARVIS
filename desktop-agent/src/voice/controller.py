@@ -28,6 +28,13 @@ def _tts_available(provider: str) -> bool:
             return True
         except ImportError:
             return False
+    if provider in ("sapi", "win32com", "winsapi"):
+        try:
+            import pythoncom  # noqa: F401
+            import win32com.client  # noqa: F401
+            return True
+        except ImportError:
+            return False
     return False
 
 

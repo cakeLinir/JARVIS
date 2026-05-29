@@ -1,4 +1,15 @@
 from __future__ import annotations
+import json
+import os
+import sys
+import threading
+import time
+from datetime import datetime
+from pathlib import Path
+from typing import Any
+from execution.app_launcher import detached_popen, start_app
+from security.config_guard import ( CONFIG_REQUIRED_MARKER, contains_placeholder, redact, validate_agent_config,)
+
 
 # JARVIS_PATCH_026_1: Projektanalyse-Rauschfilter.
 JARVIS_PROJECT_ANALYSIS_EXCLUDE_DIRS = {
@@ -144,17 +155,6 @@ def jarvis_should_suppress_log(level_value, message_value):
 
     return False
 
-
-import json
-import os
-import sys
-import threading
-import time
-from datetime import datetime
-from pathlib import Path
-from typing import Any
-
-
 def configure_console_encoding() -> None:
     """
     Force UTF-8 for Windows console and Python streams.
@@ -179,14 +179,6 @@ def configure_console_encoding() -> None:
 
 
 configure_console_encoding()
-
-from execution.app_launcher import detached_popen, start_app
-from security.config_guard import (
-    CONFIG_REQUIRED_MARKER,
-    contains_placeholder,
-    redact,
-    validate_agent_config,
-)
 
 
 AGENT_DIR = Path(__file__).resolve().parents[1]
@@ -826,12 +818,130 @@ def normalize_command(command: str) -> str:
         return " ".join(command.strip().lower().split())
 
 
+def _add_markdown_todo(config: dict[str, Any], text: str) -> bool:
+    todo_config = config.get("todo", {})
+    path_value = todo_config.get("markdownPath") if isinstance(todo_config, dict) else None
+    if not path_value:
+        return False
+    path = Path(str(path_value))
+    if not path.exists():
+        return False
+    try:
+        with path.open("a", encoding="utf-8") as fh:
+            fh.write(f"\n- [ ] {text}")
+        return True
+    except Exception as exc:
+        log("ERROR", f"TODO konnte nicht hinzugefügt werden: {exc}")
+        return False
+
+
+def _handle_system_control(action: str, value: Any, speak: Any) -> None:
+    import ctypes
+    import subprocess
+
+    if action == "set_volume":
+        pct = max(0, min(100, int(value or 50)))
+        level = int(65535 * pct / 100)
+        packed = level | (level << 16)
+        ctypes.windll.winmm.waveOutSetVolume(0, packed)
+        speak(f"Lautstärke auf {pct} Prozent gesetzt.")
+
+    elif action == "mute":
+        ctypes.windll.winmm.waveOutSetVolume(0, 0)
+        speak("Stummgeschaltet.")
+
+    elif action == "unmute":
+        level = int(65535 * 0.5)
+        ctypes.windll.winmm.waveOutSetVolume(0, level | (level << 16))
+        speak("Stummschaltung aufgehoben.")
+
+    elif action == "sleep":
+        speak("Computer wird in den Ruhemodus versetzt.")
+        subprocess.run(
+            [
+                "powershell", "-NonInteractive", "-NoProfile", "-command",
+                "Add-Type -AssemblyName System.Windows.Forms; "
+                "[System.Windows.Forms.Application]::SetSuspendState('Suspend', $false, $false)",
+            ],
+            capture_output=True,
+            timeout=10,
+        )
+
+    elif action == "shutdown":
+        speak("Computer wird in 30 Sekunden heruntergefahren.")
+        subprocess.run(["shutdown", "/s", "/t", "30"])
+
+
+def _execute_ai_tool(
+    tool_name: str,
+    tool_input: dict[str, Any],
+    config: dict[str, Any],
+    speak: Any,
+) -> bool:
+    """Führt einen von Claude gewählten Tool-Call aus. Gibt True zurück wenn Agent stoppen soll."""
+    if tool_name == "open_app":
+        app_name = str(tool_input.get("app", "")).strip().lower()
+        app_config = config.get("apps", {}).get(app_name) if isinstance(config.get("apps"), dict) else None
+        if not isinstance(app_config, dict):
+            speak(f"Ich habe keine Konfiguration für {app_name}.")
+            return False
+        result = start_app(app_name, app_config, log)
+        if result.success:
+            speak(f"{app_name} wird geöffnet.")
+        else:
+            speak(f"Ich konnte {app_name} nicht öffnen.")
+        return False
+
+    if tool_name == "system_control":
+        try:
+            _handle_system_control(
+                str(tool_input.get("action", "")),
+                tool_input.get("value"),
+                speak,
+            )
+        except Exception as exc:
+            log("ERROR", f"Systemsteuerung fehlgeschlagen: {exc}", errorCode="system_control_failed")
+            speak("Die Systemsteuerung hat nicht funktioniert.")
+        return False
+
+    if tool_name == "todo_action":
+        action = str(tool_input.get("action", ""))
+        if action == "read":
+            todos = read_todos(config)
+            if todos:
+                speak(f"Du hast {len(todos)} offene TODOs: " + ", ".join(todos[:5]))
+            else:
+                speak("Du hast keine offenen TODOs.")
+        elif action == "add":
+            text = str(tool_input.get("text", "")).strip()
+            if text and _add_markdown_todo(config, text):
+                speak(f"TODO hinzugefügt: {text}")
+            else:
+                speak("Ich konnte den TODO nicht hinzufügen.")
+        return False
+
+    if tool_name == "run_routine":
+        name = str(tool_input.get("name", ""))
+        if name == "morning_routine":
+            threading.Thread(
+                target=run_morning_routine, args=(config, speak), daemon=True
+            ).start()
+        return False
+
+    if tool_name == "answer":
+        speak(str(tool_input.get("text", "")))
+        return False
+
+    return False
+
+
 def _handle_local_command(
     command: str,
     config: dict[str, Any],
     wake_words: list[str],
     stop_event: threading.Event,
     speak: Any,
+    brain: Any = None,
 ) -> bool:
     """Returns True if the agent should stop."""
     if command in ["exit", "quit", "beenden"]:
@@ -846,16 +956,38 @@ def _handle_local_command(
         log("WARN", "Not-Aus ausgelöst.")
         return True
 
-    if command in wake_words or command == "guten morgen jarvis":
-        if command == "guten morgen jarvis":
-            run_morning_routine(config, speak=speak)
-        else:
-            log("INFO", "JARVIS ist aktiv.")
-            speak("Ja, ich bin bereit.")
+    if command == "guten morgen jarvis":
+        run_morning_routine(config, speak=speak)
         return False
 
-    log("WARN", f"Unbekannter Befehl: {command}", errorCode="unknown_local_command")
-    speak("Das habe ich nicht verstanden.")
+    if command in wake_words:
+        log("INFO", "JARVIS ist aktiv.")
+        speak("Ja, ich bin bereit.")
+        return False
+
+    # Unbekannter Befehl → an AI-Brain weiterleiten
+    if brain is None:
+        speak("Das habe ich nicht verstanden.")
+        return False
+
+    try:
+        log("INFO", f"AI-Brain verarbeitet: {command}")
+        tool_calls = brain.process(command)
+
+        for call in tool_calls:
+            should_stop = _execute_ai_tool(
+                call.get("name", ""),
+                call.get("input", {}),
+                config,
+                speak,
+            )
+            if should_stop:
+                return True
+
+    except Exception as exc:
+        log("ERROR", f"AI-Brain Ausführung fehlgeschlagen: {exc}", errorCode="ai_brain_exec_failed")
+        speak("Das habe ich nicht verstanden.")
+
     return False
 
 
@@ -880,19 +1012,23 @@ def main() -> None:
 
     voice_enabled = voice_status is not None and voice_status.enabled
 
-    # FIX Bug 4: speak() war ein no-op (pass). Im Textmodus sprach JARVIS
-    # damit gar nicht, auch nicht während der Morgenroutine.
-    # Jetzt: pyttsx3-TTS als Fallback, mit Log-Ausgabe als zweitem Fallback
-    # falls pyttsx3 nicht verfügbar oder fehlerhaft ist.
-    def speak(text: str) -> None:
-        try:
-            import pyttsx3
+    tts_service = None
+    try:
+        from voice.tts_service import create_tts
 
-            engine = pyttsx3.init()
-            engine.say(text)
-            engine.runAndWait()
-        except Exception:
-            log("INFO", f"[TTS-Fallback] {text}")
+        tts_service = create_tts(config)
+    except Exception as exc:
+        log("WARN", f"TTS konnte nicht initialisiert werden: {exc}")
+
+    def speak(text: str) -> None:
+        if tts_service:
+            tts_service.speak(text)
+            try:
+                tts_service.wait_done()
+            except Exception:
+                pass
+        else:
+            log("INFO", f"[TTS] {text}")
 
     stop_event = threading.Event()
 
@@ -907,6 +1043,14 @@ def main() -> None:
         log("INFO", "Textmodus aktiv. Tippe 'guten morgen jarvis' oder 'exit'.")
 
     send_agent_status_safe(config, "online")
+
+    try:
+        from integrations.ai_brain import create_brain
+
+        brain = create_brain(config, log)
+    except Exception as exc:
+        log("WARN", f"AI-Brain konnte nicht geladen werden: {exc}")
+        brain = None
 
     def request_stop() -> None:
         send_agent_status_safe(config, "stopped")
@@ -947,10 +1091,9 @@ def main() -> None:
     if voice_enabled:
         try:
             from voice.stt_service import create_stt
-            from voice.tts_service import create_tts
             from voice.wake_word import WakeWordDetector
 
-            tts = create_tts(config)
+            tts = tts_service
             stt = create_stt(config)
 
             def on_voice_command(cmd: str) -> None:

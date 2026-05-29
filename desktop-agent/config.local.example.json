@@ -17,9 +17,9 @@
     "obs": {
       "enabled": true,
       "mode": "path",
-      "path": "D:\\steam\\steamapps\\common\\OBS Studio\\bin\\64bit\\obs64.exe",
+      "path": "C:\\Users\\hunde\\Desktop\\OBS-Twitch",
       "args": [],
-      "workingDir": "D:\\steam\\steamapps\\common\\OBS Studio\\bin\\64bit"
+      "workingDir": "C:\\Users\\hunde\\Desktop\\OBS-Twitch\\bin\\64bit"
     },
     "discord": {
       "enabled": true,
