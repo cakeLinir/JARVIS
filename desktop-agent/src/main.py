@@ -1099,7 +1099,7 @@ def main() -> None:
             def on_voice_command(cmd: str) -> None:
                 normalized = normalize_command(cmd)
                 should_stop = _handle_local_command(
-                    normalized, config, wake_words, stop_event, tts.speak
+                    normalized, config, wake_words, stop_event, tts.speak, brain=brain
                 )
                 if should_stop:
                     stop_event.set()
@@ -1130,7 +1130,7 @@ def main() -> None:
             try:
                 command = normalize_command(input("> "))
                 should_stop = _handle_local_command(
-                    command, config, wake_words, stop_event, speak
+                    command, config, wake_words, stop_event, speak, brain=brain
                 )
                 if should_stop:
                     break

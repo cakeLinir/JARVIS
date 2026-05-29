@@ -17,7 +17,7 @@
     "obs": {
       "enabled": true,
       "mode": "path",
-      "path": "C:\\Users\\hunde\\Desktop\\OBS-Twitch",
+      "path": "C:\\Users\\hunde\\Desktop\\OBS-Twitch\\bin\\64bit\\obs64.exe",
       "args": [],
       "workingDir": "C:\\Users\\hunde\\Desktop\\OBS-Twitch\\bin\\64bit"
     },

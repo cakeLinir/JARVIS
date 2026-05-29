@@ -35,6 +35,12 @@ def _tts_available(provider: str) -> bool:
             return True
         except ImportError:
             return False
+    if provider == "edge":
+        try:
+            import edge_tts  # noqa: F401
+            return True
+        except ImportError:
+            return False
     return False
 
 
