@@ -4,7 +4,7 @@ setlocal
 set "SCRIPT_DIR=%~dp0"
 set "REPO_ROOT=%SCRIPT_DIR%.."
 set "AGENT_DIR=%REPO_ROOT%\desktop-agent"
-set "VENV_PYTHON=%REPO_ROOT%\.venv\Scripts\python.exe"
+set "VENV_PYTHON=%AGENT_DIR%\.venv\Scripts\python.exe"
 
 if not exist "%AGENT_DIR%\src\main.py" (
   echo [ERROR] desktop-agent\src\main.py nicht gefunden.
