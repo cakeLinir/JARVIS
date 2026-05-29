@@ -144,6 +144,43 @@ _TOOLS = [
         },
     },
     {
+        "name": "weather_action",
+        "description": (
+            "Aktuelles Wetter oder Vorhersage für eine Stadt abrufen. "
+            "Nutze dieses Tool bei allen Wetterfragen. "
+            "Wenn keine Stadt genannt wird, nutze die konfigurierte Heimatstadt."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "city": {
+                    "type": "string",
+                    "description": "Stadtname auf Englisch oder Deutsch (leer = Heimatstadt aus Config)",
+                },
+                "action": {
+                    "type": "string",
+                    "enum": ["current", "forecast"],
+                    "description": "current=aktuelles Wetter, forecast=Vorhersage für heute/morgen",
+                },
+            },
+            "required": ["action"],
+        },
+    },
+    {
+        "name": "open_url",
+        "description": "Öffnet eine Website oder URL im Standard-Browser.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "url": {
+                    "type": "string",
+                    "description": "Vollständige URL mit https://",
+                }
+            },
+            "required": ["url"],
+        },
+    },
+    {
         "name": "run_routine",
         "description": "Startet eine vordefinierte Routine.",
         "input_schema": {
@@ -181,6 +218,7 @@ _SYSTEM_PROMPT = (
     "Du empfängst Sprachbefehle auf Deutsch und wählst exakt ein passendes Tool aus. "
     "Antworte im 'answer'-Tool immer auf Deutsch, kurz und direkt (max. 2 Sätze). "
     "Wenn eine App oder ein Programm geöffnet werden soll, nutze immer 'open_app' — auch für unbekannte Programme. "
+    "Bei Wetterfragen nutze immer 'weather_action', nie 'answer'. "
     "Für Schichten und Streaming-Fragen nutze 'shift_action'. "
     "Für TODOs nutze 'todo_action'. "
     "Wenn bei TODOs unklar ist welches gemeint ist, frage nach mit 'answer'. "

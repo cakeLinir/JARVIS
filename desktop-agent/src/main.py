@@ -1209,6 +1209,62 @@ def _execute_ai_tool(
                 speak("Ich konnte die Streaming-Empfehlung nicht laden.")
             return False
 
+    # ── weather_action ────────────────────────────────────────────────────────
+    if tool_name == "weather_action":
+        import json as _json
+        import urllib.request
+        action = str(tool_input.get("action", "current"))
+        city = str(tool_input.get("city", "")).strip()
+        if not city:
+            weather_cfg = config.get("weather", {}) if isinstance(config, dict) else {}
+            city = str(weather_cfg.get("city", "")).strip()
+        if not city:
+            speak("Für welche Stadt soll ich das Wetter abrufen?")
+            return False
+        try:
+            req = urllib.request.Request(
+                f"https://wttr.in/{urllib.request.quote(city)}?format=j1",
+                headers={"User-Agent": "JARVIS/1.0"},
+            )
+            with urllib.request.urlopen(req, timeout=8) as resp:
+                data = _json.loads(resp.read().decode("utf-8"))
+            cur = data["current_condition"][0]
+            temp = cur["temp_C"]
+            feels = cur["FeelsLikeC"]
+            humidity = cur["humidity"]
+            desc_list = cur.get("lang_de") or cur.get("weatherDesc") or [{}]
+            desc = str(desc_list[0].get("value", "")).strip()
+            if action == "forecast":
+                days = data.get("weather", [])
+                parts = [f"In {city} aktuell {temp} Grad, {desc}."]
+                for day in days[:2]:
+                    date = day.get("date", "")
+                    hi = day.get("maxtempC", "?")
+                    lo = day.get("mintempC", "?")
+                    parts.append(f"{date}: {lo}–{hi} Grad.")
+                speak(" ".join(parts))
+            else:
+                speak(f"In {city} aktuell {temp} Grad, gefühlt {feels} Grad. {desc}. Luftfeuchtigkeit {humidity} Prozent.")
+        except Exception as exc:
+            log("WARN", f"Wetter fehlgeschlagen: {city}: {exc}")
+            speak(f"Ich konnte das Wetter für {city} leider nicht abrufen.")
+        return False
+
+    # ── open_url ──────────────────────────────────────────────────────────────
+    if tool_name == "open_url":
+        import subprocess as _sp
+        url = str(tool_input.get("url", "")).strip()
+        if not url:
+            return False
+        try:
+            _sp.Popen(["cmd", "/c", "start", "", url], shell=False)
+            speak("Seite wird geöffnet.")
+            log("INFO", f"URL geöffnet: {url}")
+        except Exception as exc:
+            log("WARN", f"URL-Öffnen fehlgeschlagen: {url}: {exc}")
+            speak("Ich konnte die Seite nicht öffnen.")
+        return False
+
     # ── run_routine ───────────────────────────────────────────────────────────
     if tool_name == "run_routine":
         name = str(tool_input.get("name", ""))
