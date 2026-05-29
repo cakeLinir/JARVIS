@@ -94,8 +94,8 @@ function Install-BackendTask {
 
 function Install-WatchdogTask {
     $name   = "JARVIS Backend Watchdog"
-    $script = Join-Path $ScriptsDir "backend.ps1"
-    if (-not (Test-Path $script)) { Fail "backend.ps1 nicht gefunden: $script" }
+    $script = Join-Path $ScriptsDir "04_backend.ps1"
+    if (-not (Test-Path $script)) { Fail "04_backend.ps1 nicht gefunden: $script" }
     if ($EveryMinutes -lt 1)      { Fail "EveryMinutes muss mindestens 1 sein." }
 
     $argParts = @("-NoProfile","-ExecutionPolicy","Bypass","-File","`"$script`"","-Action","watchdog-run","-RepoRoot","`"$RepoRootResolved`"")

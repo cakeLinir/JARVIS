@@ -123,7 +123,6 @@ export async function todoRoutes(server: FastifyInstance) {
             reminderMinutes: parsed.data.reminderMinutes,
             shiftId: parsed.data.shiftId,
             source: (parsed.data.source ?? "manual") as TodoSource,
-            history: [], // wird in createTodo befüllt
         });
 
         return reply.code(201).send({ ok: true, todo });
