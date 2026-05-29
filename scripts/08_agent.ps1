@@ -185,7 +185,7 @@ function Set-AgentConfig {
   if ($token) { Set-Prop $config "agentToken" $token }
   $config | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $configPath -Encoding UTF8
   Write-Ok "Agent-Config aktualisiert. BackendUrl=$BackendUrl  AgentName=$AgentName"
-  Write-Host "Testen: .\scripts\test.ps1 -Target connection" -ForegroundColor Cyan
+  Write-Host "Testen: .\scripts\10_test.ps1 -Target connection" -ForegroundColor Cyan
 }
 
 # ── Todo-Review ───────────────────────────────────────────────────────────────
