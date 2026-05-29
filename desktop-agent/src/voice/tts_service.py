@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import queue
 import threading
+import time
 from typing import Any
 
 _SENTINEL = object()
@@ -10,65 +11,88 @@ _SENTINEL = object()
 class TTSService:
     def __init__(self, config: dict[str, Any]) -> None:
         voice_cfg = config.get("voice", {}) if isinstance(config, dict) else {}
-        self._rate = int(voice_cfg.get("ttsRate", 170))
-        self._volume = float(voice_cfg.get("ttsVolume", 0.9))
+        pyttsx3_rate = int(voice_cfg.get("ttsRate", 170))
+        # SAPI Rate: -10..10 (0 = normal ~150 wpm). pyttsx3 170 ≈ SAPI 1.
+        self._sapi_rate = max(-10, min(10, (pyttsx3_rate - 150) // 20))
+        self._volume = min(100, max(0, int(float(voice_cfg.get("ttsVolume", 0.9)) * 100)))
         self._language = str(voice_cfg.get("language", "de-DE"))
-        self._queue: queue.Queue[str | object] = queue.Queue()
+        self._queue: queue.Queue[Any] = queue.Queue()
         self._ready = threading.Event()
+        self._error: Exception | None = None
         self._thread = threading.Thread(target=self._worker, daemon=True, name="tts-worker")
         self._thread.start()
-        self._ready.wait(timeout=5)
+        if not self._ready.wait(timeout=8):
+            raise RuntimeError("TTS-Worker konnte nicht initialisiert werden (Timeout).")
+        if self._error:
+            raise self._error
 
-    def _set_voice(self, engine: Any) -> None:
+    def _select_voice(self, speaker: Any) -> None:
         lang_prefix = self._language.lower().split("-")[0]
         try:
-            voices = engine.getProperty("voices") or []
-        except Exception:
-            return
-        for voice in voices:
-            vid = (voice.id or "").lower()
-            vname = (voice.name or "").lower()
-            if lang_prefix in vid or lang_prefix in vname or "german" in vname or "deutsch" in vname:
-                engine.setProperty("voice", voice.id)
-                return
-
-    def _worker(self) -> None:
-        # pyttsx3 muss auf demselben Thread initialisiert und genutzt werden (Windows COM).
-        import pyttsx3
-        engine = pyttsx3.init()
-        engine.setProperty("rate", self._rate)
-        engine.setProperty("volume", self._volume)
-        self._set_voice(engine)
-        self._ready.set()
-
-        while True:
-            item = self._queue.get()
-            if item is _SENTINEL:
-                self._queue.task_done()
-                break
-            try:
-                engine.say(str(item))
-                engine.runAndWait()
-            except Exception:
-                pass
-            self._queue.task_done()
-
-        try:
-            engine.stop()
+            voices = speaker.GetVoices()
+            for i in range(voices.Count):
+                voice = voices.Item(i)
+                desc = (voice.GetDescription() or "").lower()
+                if lang_prefix in desc or "german" in desc or "deutsch" in desc:
+                    speaker.Voice = voice
+                    return
         except Exception:
             pass
 
+    def _worker(self) -> None:
+        try:
+            import pythoncom
+            import win32com.client
+
+            pythoncom.CoInitialize()
+            speaker = win32com.client.Dispatch("SAPI.SpVoice")
+            speaker.Rate = self._sapi_rate
+            speaker.Volume = self._volume
+            self._select_voice(speaker)
+            self._ready.set()
+
+            while True:
+                item = self._queue.get()
+                if item is _SENTINEL:
+                    self._queue.task_done()
+                    break
+                try:
+                    speaker.Speak(str(item))
+                except Exception:
+                    pass
+                finally:
+                    self._queue.task_done()
+
+            pythoncom.CoUninitialize()
+
+        except Exception as exc:
+            self._error = exc
+            self._ready.set()
+            # Drain queue so wait_done() doesn't block
+            while not self._queue.empty():
+                try:
+                    self._queue.get_nowait()
+                    self._queue.task_done()
+                except Exception:
+                    break
+
     def speak(self, text: str) -> None:
         stripped = (text or "").strip()
-        if stripped:
+        if stripped and self._thread.is_alive():
             self._queue.put(stripped)
 
     def wait_done(self, timeout: float = 15.0) -> None:
-        """Blockiert bis alle queued Texte gesprochen wurden."""
-        self._queue.join()
+        if not self._thread.is_alive():
+            return
+        deadline = time.monotonic() + timeout
+        while not self._queue.empty() and time.monotonic() < deadline:
+            time.sleep(0.05)
+        # Extra Puffer damit SAPI das letzte Wort fertig spricht
+        time.sleep(0.4)
 
     def stop(self) -> None:
-        self._queue.put(_SENTINEL)
+        if self._thread.is_alive():
+            self._queue.put(_SENTINEL)
 
 
 def create_tts(config: dict[str, Any]) -> TTSService:
