@@ -139,8 +139,12 @@ class WakeWordDetector:
 
             # Vollständige Begrüßung: "Hallo Jarvis", "Guten Morgen Jarvis"
             if self._is_complete_greeting(text):
-                self._log("INFO", f"Wake-Phrase erkannt: {normalized}")
-                self._on_command(normalized)
+                if is_morning_phrase(text):
+                    self._log("INFO", "Morgenroutine erkannt.")
+                    self._on_command("guten morgen jarvis")
+                else:
+                    self._log("INFO", f"Begrüßung erkannt: {normalized}")
+                    self._speak_and_wait("Ja, ich bin bereit.")
                 self._tts.wait_done()
                 continue
 
