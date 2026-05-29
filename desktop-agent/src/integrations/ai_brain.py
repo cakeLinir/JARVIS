@@ -5,6 +5,8 @@ from typing import Any, Callable
 
 LogFn = Callable[[str, str], None]
 
+# ── Tool-Definitionen ──────────────────────────────────────────────────────────
+
 _TOOLS = [
     {
         "name": "open_app",
@@ -29,7 +31,6 @@ _TOOLS = [
                 "action": {
                     "type": "string",
                     "enum": ["set_volume", "mute", "unmute", "sleep", "shutdown"],
-                    "description": "Aktion",
                 },
                 "value": {
                     "type": "integer",
@@ -41,18 +42,96 @@ _TOOLS = [
     },
     {
         "name": "todo_action",
-        "description": "TODOs verwalten: offene TODOs vorlesen oder einen neuen hinzufügen.",
+        "description": (
+            "TODOs verwalten: lesen, hinzufügen, als erledigt markieren, verschieben, "
+            "Priorität setzen, Erinnerung setzen. "
+            "Wenn unklar welches TODO gemeint ist (z.B. 'mach das wichtig' ohne Kontext), "
+            "nutze das 'answer'-Tool um nachzufragen."
+        ),
         "input_schema": {
             "type": "object",
             "properties": {
                 "action": {
                     "type": "string",
-                    "enum": ["read", "add"],
-                    "description": "'read' liest offene TODOs vor, 'add' fügt einen neuen hinzu",
+                    "enum": [
+                        "read",
+                        "add",
+                        "complete",
+                        "reschedule",
+                        "set_priority",
+                        "set_reminder",
+                    ],
+                    "description": (
+                        "read=vorlesen, add=hinzufügen, complete=erledigt, "
+                        "reschedule=verschieben, set_priority=Priorität ändern, "
+                        "set_reminder=Erinnerung setzen"
+                    ),
                 },
                 "text": {
                     "type": "string",
-                    "description": "Text des neuen TODOs (nur bei action=add)",
+                    "description": "Titel des neuen TODOs (nur bei action=add)",
+                },
+                "todo_ref": {
+                    "type": "string",
+                    "description": "Titel oder Titelausschnitt des zu ändernden TODOs",
+                },
+                "due_date": {
+                    "type": "string",
+                    "description": (
+                        "Fälligkeitsdatum. Kann sein: 'heute', 'morgen', 'übermorgen', "
+                        "'Sonntag', 'YYYY-MM-DD'. Wird automatisch aufgelöst."
+                    ),
+                },
+                "due_time": {
+                    "type": "string",
+                    "description": "Uhrzeit HH:MM oder '9 Uhr', 'halb zehn'",
+                },
+                "priority": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 5,
+                    "description": "1=kritisch, 2=hoch, 3=mittel, 4=niedrig, 5=optional",
+                },
+                "reminder_minutes": {
+                    "type": "integer",
+                    "description": "Minuten vor Fälligkeit für Erinnerung (z.B. 120 = 2h vorher)",
+                },
+                "category": {
+                    "type": "string",
+                    "description": "Kategorie: 'arbeit', 'privat', 'streaming', 'haushalt'",
+                },
+                "description": {
+                    "type": "string",
+                    "description": "Optionale Notizen / Details zum TODO",
+                },
+            },
+            "required": ["action"],
+        },
+    },
+    {
+        "name": "shift_action",
+        "description": (
+            "Schichten eintragen oder abrufen, Streaming-Empfehlung holen. "
+            "Schichttypen: tag (07:00–19:00), nacht (19:00–07:00), frei, "
+            "fakt_frueh (07:00–14:30), fakt_spaet (14:30–21:30). "
+            "Datumsangaben wie 'heute', 'morgen', 'Sonntag' werden automatisch aufgelöst."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "action": {
+                    "type": "string",
+                    "enum": ["set", "get", "streaming_advice"],
+                    "description": "set=Schicht eintragen, get=Schicht abrufen, streaming_advice=Empfehlung",
+                },
+                "date": {
+                    "type": "string",
+                    "description": "Datum: 'heute', 'morgen', 'Sonntag' oder YYYY-MM-DD",
+                },
+                "shift_type": {
+                    "type": "string",
+                    "enum": ["tag", "nacht", "frei", "fakt_frueh", "fakt_spaet"],
+                    "description": "Schichttyp (nur bei action=set)",
                 },
             },
             "required": ["action"],
@@ -67,7 +146,6 @@ _TOOLS = [
                 "name": {
                     "type": "string",
                     "enum": ["morning_routine"],
-                    "description": "Name der Routine",
                 }
             },
             "required": ["name"],
@@ -75,7 +153,10 @@ _TOOLS = [
     },
     {
         "name": "answer",
-        "description": "Beantwortet eine Frage oder gibt eine Information aus. Nutze dieses Tool wenn kein anderes passt.",
+        "description": (
+            "Beantwortet eine Frage oder gibt eine Information aus. "
+            "Nutze dieses Tool auch wenn du Rückfragen stellen musst (z.B. welches TODO gemeint ist)."
+        ),
         "input_schema": {
             "type": "object",
             "properties": {
@@ -90,21 +171,28 @@ _TOOLS = [
 ]
 
 _SYSTEM_PROMPT = (
-    "Du bist JARVIS, ein lokaler Desktop-Assistent auf Windows. "
+    "Du bist JARVIS, ein lokaler Desktop-Assistent auf Windows für Justin. "
     "Du empfängst Sprachbefehle auf Deutsch und wählst exakt ein passendes Tool aus. "
     "Antworte im 'answer'-Tool immer auf Deutsch, kurz und direkt (max. 2 Sätze). "
-    "Wenn eine App geöffnet werden soll, nutze immer 'open_app'."
+    "Wenn eine App geöffnet werden soll, nutze 'open_app'. "
+    "Für Schichten und Streaming-Fragen nutze 'shift_action'. "
+    "Für TODOs nutze 'todo_action'. "
+    "Wenn bei TODOs unklar ist welches gemeint ist, frage nach mit 'answer'. "
+    "Datumsangaben wie 'morgen', 'Sonntag' etc. übergibst du unverändert — "
+    "sie werden automatisch aufgelöst. "
+    "Schichttypen: tag, nacht, frei, fakt_frueh, fakt_spaet."
 )
+
+
+# ── AIBrain ───────────────────────────────────────────────────────────────────
 
 
 class AIBrain:
     def __init__(self, config: dict[str, Any], log: LogFn) -> None:
         self._log = log
-
         api_key = str(config.get("anthropicApiKey", "")).strip()
         if not api_key or "CHANGE_ME" in api_key.upper():
             api_key = os.getenv("ANTHROPIC_API_KEY", "").strip()
-
         import anthropic
 
         self._client = anthropic.Anthropic(api_key=api_key)
@@ -120,7 +208,6 @@ class AIBrain:
                 tools=_TOOLS,
                 messages=[{"role": "user", "content": command}],
             )
-
             tool_calls: list[dict[str, Any]] = []
             for block in response.content:
                 if block.type == "tool_use":
@@ -149,21 +236,19 @@ class AIBrain:
             ]
 
 
-def create_brain(config: dict[str, Any], log: LogFn) -> AIBrain | None:
+def create_brain(config: dict[str, Any], log: LogFn) -> "AIBrain | None":
     """Erstellt AIBrain. Gibt None zurück wenn kein API-Key konfiguriert."""
     api_key = str(config.get("anthropicApiKey", "")).strip()
     if not api_key or "CHANGE_ME" in api_key.upper():
         api_key = os.getenv("ANTHROPIC_API_KEY", "").strip()
-
     if not api_key:
         log(
             "WARN",
             "Kein Anthropic API-Key konfiguriert. AI-Brain deaktiviert. "
-            "Setze 'anthropicApiKey' in config oder ANTHROPIC_API_KEY als ENV-Variable.",
+            "Setze 'anthropicApiKey' in config oder ANTHROPIC_API_KEY als ENV.",
             errorCode="ai_brain_no_api_key",
         )
         return None
-
     try:
         return AIBrain(config, log)
     except Exception as exc:

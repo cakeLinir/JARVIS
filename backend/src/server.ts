@@ -12,8 +12,15 @@ import { openAiRoutes } from "./routes/openai.routes.js";
 import { commandRoutes } from "./routes/command.routes.js";
 import { realtimeRoutes } from "./routes/realtime.routes.js";
 import { dashboardRoutes } from "./routes/dashboard.routes.js";
+import { todoRoutes } from "./routes/todo.routes.js";
+import { shiftRoutes } from "./routes/shift.routes.js";
+import { streamingRoutes } from "./routes/streaming.routes.js";
+import { loadTodos } from "./services/todo-store.js";
+import { loadShifts } from "./services/shift-store.js";
 
 loadCommands();
+loadTodos();
+loadShifts();
 
 const server = Fastify({
   logger: true
@@ -34,6 +41,9 @@ await server.register(openAiRoutes);
 await server.register(commandRoutes);
 await server.register(realtimeRoutes);
 await server.register(dashboardRoutes);
+await server.register(todoRoutes);
+await server.register(shiftRoutes);
+await server.register(streamingRoutes);
 
 async function start() {
   try {

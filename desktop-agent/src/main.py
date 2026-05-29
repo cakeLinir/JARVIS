@@ -9,6 +9,8 @@ from pathlib import Path
 from typing import Any
 from execution.app_launcher import detached_popen, start_app
 from security.config_guard import ( CONFIG_REQUIRED_MARKER, contains_placeholder, redact, validate_agent_config,)
+from utils.date_resolver import resolve_date, resolve_time
+from shifts.shift_parser import parse_shift_type, shift_label
 
 
 # JARVIS_PATCH_026_1: Projektanalyse-Rauschfilter.
@@ -879,47 +881,316 @@ def _execute_ai_tool(
     speak: Any,
 ) -> bool:
     """Führt einen von Claude gewählten Tool-Call aus. Gibt True zurück wenn Agent stoppen soll."""
+
+    # ── open_app ──────────────────────────────────────────────────────────────
     if tool_name == "open_app":
         app_name = str(tool_input.get("app", "")).strip().lower()
-        app_config = config.get("apps", {}).get(app_name) if isinstance(config.get("apps"), dict) else None
+        app_config = (
+            config.get("apps", {}).get(app_name)
+            if isinstance(config.get("apps"), dict)
+            else None
+        )
         if not isinstance(app_config, dict):
             speak(f"Ich habe keine Konfiguration für {app_name}.")
             return False
         result = start_app(app_name, app_config, log)
-        if result.success:
-            speak(f"{app_name} wird geöffnet.")
-        else:
-            speak(f"Ich konnte {app_name} nicht öffnen.")
+        speak(
+            f"{app_name} wird geöffnet."
+            if result.success
+            else f"Ich konnte {app_name} nicht öffnen."
+        )
         return False
 
+    # ── system_control ────────────────────────────────────────────────────────
     if tool_name == "system_control":
         try:
             _handle_system_control(
-                str(tool_input.get("action", "")),
-                tool_input.get("value"),
-                speak,
+                str(tool_input.get("action", "")), tool_input.get("value"), speak
             )
         except Exception as exc:
-            log("ERROR", f"Systemsteuerung fehlgeschlagen: {exc}", errorCode="system_control_failed")
+            log(
+                "ERROR",
+                f"Systemsteuerung fehlgeschlagen: {exc}",
+                errorCode="system_control_failed",
+            )
             speak("Die Systemsteuerung hat nicht funktioniert.")
         return False
 
+    # ── todo_action ───────────────────────────────────────────────────────────
     if tool_name == "todo_action":
         action = str(tool_input.get("action", ""))
-        if action == "read":
-            todos = read_todos(config)
-            if todos:
-                speak(f"Du hast {len(todos)} offene TODOs: " + ", ".join(todos[:5]))
-            else:
-                speak("Du hast keine offenen TODOs.")
-        elif action == "add":
-            text = str(tool_input.get("text", "")).strip()
-            if text and _add_markdown_todo(config, text):
-                speak(f"TODO hinzugefügt: {text}")
-            else:
-                speak("Ich konnte den TODO nicht hinzufügen.")
-        return False
 
+        if action == "read":
+            # Backend-Todos bevorzugen, Fallback auf lokalen Provider
+            try:
+                from todo.todo_client import get_due_today
+
+                todos_data = get_due_today(config, log)
+                if todos_data:
+                    titles = [t.get("title", "") for t in todos_data[:5]]
+                    speak(
+                        f"Du hast {len(todos_data)} fällige TODOs: " + ", ".join(titles)
+                    )
+                else:
+                    speak("Du hast keine fälligen TODOs.")
+            except Exception:
+                # Offline-Fallback auf lokalen Provider
+                todos = read_todos(config)
+                if todos:
+                    speak(f"Du hast {len(todos)} offene TODOs: " + ", ".join(todos[:5]))
+                else:
+                    speak("Du hast keine offenen TODOs.")
+            return False
+
+        if action == "add":
+            title = str(tool_input.get("text", "")).strip()
+            if not title:
+                speak("Wie soll das TODO heißen?")
+                return False
+
+            # Datum auflösen
+            raw_date = tool_input.get("due_date")
+            due_date = resolve_date(str(raw_date)) if raw_date else None
+
+            raw_time = tool_input.get("due_time")
+            due_time = resolve_time(str(raw_time)) if raw_time else None
+
+            priority = int(tool_input.get("priority", 3))
+            reminder_minutes = tool_input.get("reminder_minutes")
+            category = tool_input.get("category")
+            description = tool_input.get("description")
+
+            try:
+                from todo.todo_client import create_todo
+
+                todo = create_todo(
+                    config=config,
+                    log=log,
+                    title=title,
+                    due_date=due_date,
+                    due_time=due_time,
+                    priority=priority,
+                    category=category,
+                    reminder_minutes=reminder_minutes,
+                    source="voice",
+                    description=description,
+                )
+                if todo:
+                    date_hint = f" für {due_date}" if due_date else ""
+                    time_hint = f" um {due_time} Uhr" if due_time else ""
+                    speak(f"TODO hinzugefügt: {title}{date_hint}{time_hint}.")
+                else:
+                    # Offline-Fallback
+                    _add_markdown_todo(config, title)
+                    speak(f"TODO lokal gespeichert: {title}")
+            except Exception as exc:
+                log("WARN", f"Todo-Backend nicht erreichbar, lokaler Fallback: {exc}")
+                _add_markdown_todo(config, title)
+                speak(f"TODO lokal gespeichert: {title}")
+            return False
+
+        if action == "complete":
+            todo_ref = str(tool_input.get("todo_ref", "")).strip()
+            try:
+                from todo.todo_client import (
+                    find_todo_by_title,
+                    complete_todo as _complete,
+                )
+
+                todo = find_todo_by_title(config, log, todo_ref) if todo_ref else None
+                if not todo:
+                    speak("Ich konnte das TODO nicht finden. Welches meinst du?")
+                    return False
+                result = _complete(config, log, todo["id"], actor="voice")
+                speak(f"Erledigt: {todo.get('title', todo_ref)}.")
+            except Exception as exc:
+                log("WARN", f"Todo-Complete fehlgeschlagen: {exc}")
+                speak("Ich konnte das TODO nicht als erledigt markieren.")
+            return False
+
+        if action == "reschedule":
+            todo_ref = str(tool_input.get("todo_ref", "")).strip()
+            raw_date = tool_input.get("due_date")
+            new_date = resolve_date(str(raw_date)) if raw_date else None
+
+            if not new_date:
+                speak("Auf welches Datum soll ich es verschieben?")
+                return False
+
+            raw_time = tool_input.get("due_time")
+            new_time = resolve_time(str(raw_time)) if raw_time else None
+
+            try:
+                from todo.todo_client import (
+                    find_todo_by_title,
+                    reschedule_todo as _reschedule,
+                )
+
+                todo = find_todo_by_title(config, log, todo_ref) if todo_ref else None
+                if not todo:
+                    speak("Ich konnte das TODO nicht finden.")
+                    return False
+                _reschedule(config, log, todo["id"], new_date, new_time, actor="voice")
+                speak(f"{todo.get('title', todo_ref)} verschoben auf {new_date}.")
+            except Exception as exc:
+                log("WARN", f"Todo-Reschedule fehlgeschlagen: {exc}")
+                speak("Das Verschieben hat nicht geklappt.")
+            return False
+
+        if action == "set_priority":
+            todo_ref = str(tool_input.get("todo_ref", "")).strip()
+            priority = int(tool_input.get("priority", 2))
+            prio_labels = {
+                1: "kritisch",
+                2: "hoch",
+                3: "mittel",
+                4: "niedrig",
+                5: "optional",
+            }
+            try:
+                from todo.todo_client import find_todo_by_title, update_todo as _update
+
+                todo = find_todo_by_title(config, log, todo_ref) if todo_ref else None
+                if not todo:
+                    speak("Welches TODO meinst du?")
+                    return False
+                _update(config, log, todo["id"], {"priority": priority}, actor="voice")
+                speak(
+                    f"Priorität von '{todo.get('title', todo_ref)}' auf {prio_labels.get(priority, priority)} gesetzt."
+                )
+            except Exception as exc:
+                log("WARN", f"Todo-Priority fehlgeschlagen: {exc}")
+                speak("Die Priorität konnte nicht geändert werden.")
+            return False
+
+        if action == "set_reminder":
+            todo_ref = str(tool_input.get("todo_ref", "")).strip()
+            reminder_minutes = int(tool_input.get("reminder_minutes", 30))
+            try:
+                from todo.todo_client import find_todo_by_title, update_todo as _update
+
+                todo = find_todo_by_title(config, log, todo_ref) if todo_ref else None
+                if not todo:
+                    speak("Für welches TODO soll ich die Erinnerung setzen?")
+                    return False
+                _update(
+                    config,
+                    log,
+                    todo["id"],
+                    {"reminderMinutes": reminder_minutes},
+                    actor="voice",
+                )
+                hours = reminder_minutes // 60
+                mins = reminder_minutes % 60
+                hint = (
+                    f"{hours} Stunden"
+                    if hours and not mins
+                    else (f"{mins} Minuten" if not hours else f"{hours}h {mins}min")
+                )
+                speak(
+                    f"Erinnerung für '{todo.get('title', '')}' auf {hint} vorher gesetzt."
+                )
+            except Exception as exc:
+                log("WARN", f"Todo-Reminder fehlgeschlagen: {exc}")
+                speak("Die Erinnerung konnte nicht gesetzt werden.")
+            return False
+
+    # ── shift_action ──────────────────────────────────────────────────────────
+    if tool_name == "shift_action":
+        action = str(tool_input.get("action", ""))
+
+        if action == "set":
+            raw_date = tool_input.get("date")
+            raw_type = tool_input.get("shift_type", "")
+            date_str = resolve_date(str(raw_date)) if raw_date else None
+            shift_type = parse_shift_type(str(raw_type)) if raw_type else None
+
+            if not date_str:
+                speak("Für welches Datum soll ich die Schicht eintragen?")
+                return False
+            if not shift_type:
+                speak("Welche Schicht? Tag, Nacht, FAKT Früh, FAKT Spät oder Frei?")
+                return False
+
+            try:
+                from shifts.shift_client import set_shift
+
+                shift = set_shift(
+                    config, log, date=date_str, shift_type=shift_type, source="voice"
+                )
+                if shift:
+                    speak(
+                        f"{shift_label(shift_type)} für {date_str} eingetragen: {shift.get('startTime', '')}–{shift.get('endTime', '')} Uhr."
+                    )
+                else:
+                    speak("Die Schicht konnte nicht gespeichert werden.")
+            except Exception as exc:
+                log("WARN", f"Shift-Set fehlgeschlagen: {exc}")
+                speak("Ich konnte die Schicht nicht eintragen.")
+            return False
+
+        if action == "get":
+            raw_date = tool_input.get("date")
+            date_str = resolve_date(str(raw_date)) if raw_date else None
+            try:
+                from shifts.shift_client import get_shift, get_today_shift
+
+                shift = (
+                    get_shift(config, log, date_str)
+                    if date_str
+                    else get_today_shift(config, log)
+                )
+                if shift:
+                    speak(
+                        f"{shift.get('label', '')} am {shift.get('date', '')}: {shift.get('startTime', '')}–{shift.get('endTime', '')} Uhr."
+                    )
+                else:
+                    speak("Für dieses Datum ist keine Schicht eingetragen.")
+            except Exception as exc:
+                log("WARN", f"Shift-Get fehlgeschlagen: {exc}")
+                speak("Ich konnte die Schicht nicht abrufen.")
+            return False
+
+        if action == "streaming_advice":
+            raw_date = tool_input.get("date")
+            date_str = resolve_date(str(raw_date)) if raw_date else None
+            try:
+                from shifts.shift_client import get_streaming_advice
+
+                advice = get_streaming_advice(config, log, date=date_str)
+                if not advice:
+                    speak("Ich konnte keine Streaming-Empfehlung abrufen.")
+                    return False
+
+                rec = advice.get("recommendation", "unknown")
+                label_map = {
+                    "yes": "Ja, Streaming ist heute sinnvoll.",
+                    "conditional": "Bedingt sinnvoll.",
+                    "no": "Nein, heute kein Streaming empfohlen.",
+                    "unknown": "Keine Schicht eingetragen — bitte zuerst Schicht eintragen.",
+                }
+                base = label_map.get(rec, rec)
+
+                reasons = advice.get("reasons", [])
+                warnings = advice.get("warnings", [])
+                latest = advice.get("latestStreamEnd")
+
+                parts = [base]
+                if reasons:
+                    parts.append(reasons[0])
+                if latest:
+                    parts.append(f"Empfohlenes Stream-Ende: {latest} Uhr.")
+                if warnings:
+                    parts.append(warnings[0])
+
+                speak(" ".join(parts))
+
+            except Exception as exc:
+                log("WARN", f"Streaming-Advice fehlgeschlagen: {exc}")
+                speak("Ich konnte die Streaming-Empfehlung nicht laden.")
+            return False
+
+    # ── run_routine ───────────────────────────────────────────────────────────
     if tool_name == "run_routine":
         name = str(tool_input.get("name", ""))
         if name == "morning_routine":
@@ -928,6 +1199,7 @@ def _execute_ai_tool(
             ).start()
         return False
 
+    # ── answer ────────────────────────────────────────────────────────────────
     if tool_name == "answer":
         speak(str(tool_input.get("text", "")))
         return False
@@ -1105,6 +1377,15 @@ def main() -> None:
         routine_scheduler.start()
     except Exception as exc:
         log("WARN", f"Routine-Scheduler konnte nicht gestartet werden: {exc}")
+        
+    try:
+        from todo.reminder_engine import ReminderEngine
+        reminder_engine = ReminderEngine(
+            config=config, log=log, speak=speak, stop_event=stop_event
+        )
+        reminder_engine.start()
+    except Exception as exc:
+        log("WARN", f"Reminder-Engine konnte nicht gestartet werden: {exc}")
 
     polling_thread = threading.Thread(
         target=command_poll_loop,
