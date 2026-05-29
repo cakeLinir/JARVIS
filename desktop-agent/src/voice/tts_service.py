@@ -63,6 +63,10 @@ class TTSService:
         if stripped:
             self._queue.put(stripped)
 
+    def wait_done(self, timeout: float = 15.0) -> None:
+        """Blockiert bis alle queued Texte gesprochen wurden."""
+        self._queue.join()
+
     def stop(self) -> None:
         self._queue.put(_SENTINEL)
 
