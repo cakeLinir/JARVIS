@@ -87,6 +87,7 @@ export const config = {
   botBridgeToken: process.env.JARVIS_BOT_BRIDGE_TOKEN ?? "",
   dashboardToken: process.env.JARVIS_DASHBOARD_TOKEN ?? "",
   openAiApiKey: process.env.OPENAI_API_KEY ?? "",
+  anthropicApiKey: process.env.ANTHROPIC_API_KEY ?? "",
 
   dashboardSessionCookieName:
     process.env.JARVIS_DASHBOARD_SESSION_COOKIE_NAME?.trim() ||
@@ -128,6 +129,7 @@ export const config = {
     "Du bist JARVIS, ein deutscher persönlicher Windows-Desktop-Assistent. Antworte kurz, präzise und führe Aktionen nur über freigegebene Tools aus.",
 
   openAiChatModel: process.env.JARVIS_OPENAI_CHAT_MODEL ?? "gpt-4.1-mini",
+  claudeModel: process.env.JARVIS_CLAUDE_MODEL ?? "claude-opus-4-8",
 
   allowedDiscordUserIds: splitCsv(process.env.JARVIS_ALLOWED_DISCORD_USER_IDS),
   allowedDiscordRoleIds: splitCsv(process.env.JARVIS_ALLOWED_DISCORD_ROLE_IDS),
@@ -207,7 +209,8 @@ export function getConfigStatus() {
       required: true,
       message: "Public Base URL ist konfiguriert."
     },
-    checkSecret("OPENAI_API_KEY", config.openAiApiKey),
+    checkSecret("ANTHROPIC_API_KEY", config.anthropicApiKey),
+    checkSecret("OPENAI_API_KEY", config.openAiApiKey, false),
     checkSecret("JARVIS_AGENT_TOKEN", config.agentToken),
     checkSecret("JARVIS_BOT_BRIDGE_TOKEN", config.botBridgeToken),
     checkSecret("JARVIS_DASHBOARD_TOKEN", config.dashboardToken, false),
