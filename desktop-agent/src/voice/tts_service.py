@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import queue
 import threading
-import time
 from typing import Any
 
 _SENTINEL = object()
@@ -12,7 +11,7 @@ class TTSService:
     def __init__(self, config: dict[str, Any]) -> None:
         voice_cfg = config.get("voice", {}) if isinstance(config, dict) else {}
         pyttsx3_rate = int(voice_cfg.get("ttsRate", 170))
-        # SAPI Rate: -10..10 (0 = normal ~150 wpm). pyttsx3 170 ≈ SAPI 1.
+        # SAPI Rate: -10..10 (0 = normal ~150 wpm)
         self._sapi_rate = max(-10, min(10, (pyttsx3_rate - 150) // 20))
         self._volume = min(100, max(0, int(float(voice_cfg.get("ttsVolume", 0.9)) * 100)))
         self._language = str(voice_cfg.get("language", "de-DE"))
@@ -57,18 +56,22 @@ class TTSService:
                     self._queue.task_done()
                     break
                 try:
-                    speaker.Speak(str(item))
+                    # Flag 0 = SVSFDefault (synchronous): Speak() blockiert bis der Satz
+                    # vollständig gesprochen wurde. task_done() danach → wait_done() korrekt.
+                    speaker.Speak(str(item), 0)
                 except Exception:
                     pass
                 finally:
                     self._queue.task_done()
 
-            pythoncom.CoUninitialize()
+            try:
+                pythoncom.CoUninitialize()
+            except Exception:
+                pass
 
         except Exception as exc:
             self._error = exc
             self._ready.set()
-            # Drain queue so wait_done() doesn't block
             while not self._queue.empty():
                 try:
                     self._queue.get_nowait()
@@ -82,13 +85,22 @@ class TTSService:
             self._queue.put(stripped)
 
     def wait_done(self, timeout: float = 15.0) -> None:
+        """Blockiert bis alle queued Texte vollständig gesprochen wurden.
+
+        Nutzt queue.join(): task_done() wird erst nach Speak() aufgerufen,
+        daher wartet join() auf das echte Ende der Sprachausgabe.
+        """
         if not self._thread.is_alive():
             return
-        deadline = time.monotonic() + timeout
-        while not self._queue.empty() and time.monotonic() < deadline:
-            time.sleep(0.05)
-        # Extra Puffer damit SAPI das letzte Wort fertig spricht
-        time.sleep(0.4)
+        done = threading.Event()
+
+        def _joiner() -> None:
+            self._queue.join()
+            done.set()
+
+        t = threading.Thread(target=_joiner, daemon=True)
+        t.start()
+        done.wait(timeout=timeout)
 
     def stop(self) -> None:
         if self._thread.is_alive():
