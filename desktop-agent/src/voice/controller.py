@@ -34,6 +34,14 @@ def _tts_available(provider: str) -> bool:
 def _stt_available(provider: str) -> bool:
     if provider in ("disabled", "none", ""):
         return True
+    if provider in ("whisper", "faster-whisper"):
+        try:
+            import faster_whisper  # noqa: F401
+            import pyaudio  # noqa: F401
+            import numpy  # noqa: F401
+            return True
+        except ImportError:
+            return False
     if provider == "google":
         try:
             import speech_recognition  # noqa: F401
