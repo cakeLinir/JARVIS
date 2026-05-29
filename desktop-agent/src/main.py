@@ -884,21 +884,40 @@ def _execute_ai_tool(
 
     # ── open_app ──────────────────────────────────────────────────────────────
     if tool_name == "open_app":
+        import shutil
+        import subprocess
         app_name = str(tool_input.get("app", "")).strip().lower()
         app_config = (
             config.get("apps", {}).get(app_name)
             if isinstance(config.get("apps"), dict)
             else None
         )
-        if not isinstance(app_config, dict):
-            speak(f"Ich habe keine Konfiguration für {app_name}.")
+        if isinstance(app_config, dict):
+            result = start_app(app_name, app_config, log)
+            speak(f"{app_name} wird geöffnet." if result.success else f"Ich konnte {app_name} nicht öffnen.")
             return False
-        result = start_app(app_name, app_config, log)
-        speak(
-            f"{app_name} wird geöffnet."
-            if result.success
-            else f"Ich konnte {app_name} nicht öffnen."
-        )
+
+        # Nicht konfiguriert → Windows-Fallback
+        _WIN_ALIASES = {
+            "rechner": "calc", "taschenrechner": "calc",
+            "explorer": "explorer", "datei-explorer": "explorer",
+            "editor": "notepad", "notizblock": "notepad",
+            "aufgabenmanager": "taskmgr", "task-manager": "taskmgr",
+            "einstellungen": "ms-settings:", "systemsteuerung": "control",
+            "paint": "mspaint", "wordpad": "wordpad",
+        }
+        launch_name = _WIN_ALIASES.get(app_name, app_name)
+        exe = shutil.which(launch_name)
+        try:
+            if exe:
+                subprocess.Popen([exe])
+            else:
+                subprocess.Popen(["cmd", "/c", "start", "", launch_name], shell=False)
+            speak(f"{app_name} wird geöffnet.")
+            log("INFO", f"App geöffnet (Fallback): {launch_name}")
+        except Exception as exc:
+            log("WARN", f"App-Fallback fehlgeschlagen: {launch_name}: {exc}")
+            speak(f"Ich konnte {app_name} nicht öffnen.")
         return False
 
     # ── system_control ────────────────────────────────────────────────────────

@@ -10,13 +10,19 @@ LogFn = Callable[[str, str], None]
 _TOOLS = [
     {
         "name": "open_app",
-        "description": "Öffnet eine Anwendung wie Spotify, Discord, OBS, VSCode oder WhatsApp.",
+        "description": (
+            "Öffnet eine beliebige Anwendung oder ein Programm auf dem PC. "
+            "Funktioniert mit konfigurierten Apps (spotify, discord, obs, vscode, whatsapp) "
+            "und mit beliebigen anderen Programmen (z.B. notepad, chrome, firefox, rechner, "
+            "explorer, word, excel, teams, telegram). "
+            "Übergib den Programmnamen so wie der Nutzer ihn nennt."
+        ),
         "input_schema": {
             "type": "object",
             "properties": {
                 "app": {
                     "type": "string",
-                    "description": "App-Name in Kleinbuchstaben (spotify, discord, obs, vscode, whatsapp)",
+                    "description": "Programmname, z.B. 'notepad', 'chrome', 'spotify', 'rechner', 'discord'",
                 }
             },
             "required": ["app"],
@@ -174,7 +180,7 @@ _SYSTEM_PROMPT = (
     "Du bist JARVIS, ein lokaler Desktop-Assistent auf Windows für Justin. "
     "Du empfängst Sprachbefehle auf Deutsch und wählst exakt ein passendes Tool aus. "
     "Antworte im 'answer'-Tool immer auf Deutsch, kurz und direkt (max. 2 Sätze). "
-    "Wenn eine App geöffnet werden soll, nutze 'open_app'. "
+    "Wenn eine App oder ein Programm geöffnet werden soll, nutze immer 'open_app' — auch für unbekannte Programme. "
     "Für Schichten und Streaming-Fragen nutze 'shift_action'. "
     "Für TODOs nutze 'todo_action'. "
     "Wenn bei TODOs unklar ist welches gemeint ist, frage nach mit 'answer'. "
