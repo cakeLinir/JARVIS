@@ -54,6 +54,10 @@ function Get-EnvValueFromFile([string]$Path, [string]$Key) {
 # ── Start ─────────────────────────────────────────────────────────────────────
 
 function Start-Agent {
+  try {
+    $h = Invoke-RestMethod "http://127.0.0.1:$LocalAgentPort/health" -TimeoutSec 2 -ErrorAction Stop
+    if ($h.ok) { Write-Ok "Agent läuft bereits (Port $LocalAgentPort). Kein neuer Start."; exit 0 }
+  } catch {}
   $runner = Join-Path $ScriptsDir "11_run-local-agent.cmd"
   if (-not (Test-Path $runner)) { Fail "11_run-local-agent.cmd nicht gefunden: $runner" }
   Write-Info "Starte lokalen Agent..."
