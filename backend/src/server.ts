@@ -16,12 +16,7 @@ import { dashboardRoutes } from "./routes/dashboard.routes.js";
 import { todoRoutes } from "./routes/todo.routes.js";
 import { shiftRoutes } from "./routes/shift.routes.js";
 import { streamingRoutes } from "./routes/streaming.routes.js";
-import { loadTodos } from "./services/todo-store.js";
-import { loadShifts } from "./services/shift-store.js";
-
 loadCommands();
-loadTodos();
-loadShifts();
 
 const server = Fastify({
   logger: true

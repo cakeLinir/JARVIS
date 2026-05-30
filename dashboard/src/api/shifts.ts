@@ -1,4 +1,5 @@
 import type {
+    AvailabilityResponse,
     ShiftListResponse,
     ShiftResponse,
     StreamingAdviceResponse,
@@ -73,4 +74,9 @@ export async function getStreamingAdviceTomorrow(): Promise<StreamingAdviceRespo
 
 export async function getStreamingAdviceWeek(): Promise<StreamingWeekResponse> {
     return req<StreamingWeekResponse>("/api/streaming/advice/week");
+}
+
+// Verfügbarkeits-/Streaming-Ampel für ein konkretes Datum
+export async function getAvailability(date: string): Promise<AvailabilityResponse> {
+    return req<AvailabilityResponse>(`/api/availability/${date}`);
 }

@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import threading
 from dataclasses import asdict, dataclass
 from typing import Any, Callable
 
 LogFn = Callable[[str, str], None]
+CommandHandlerFn = Callable[..., str | None]  # handle_text_input(config, log, text, ...) → str|None
 
 
 @dataclass(slots=True)
@@ -131,6 +133,160 @@ def get_voice_status(config: dict[str, Any]) -> VoiceStatus:
         sttProvider=stt_provider,
         ttsProvider=tts_provider,
     )
+
+
+class VoiceController:
+    """
+    Orchestriert die vollständige Voice-Pipeline:
+    Wake-Word → STT (record + transcribe) → IntentRouter → TTS.
+    Nutzt WakeWordDetector (sounddevice/openWakeWord) und standalone STT-Funktionen.
+    """
+
+    def __init__(
+        self,
+        config: dict[str, Any],
+        log: LogFn,
+        command_handler: CommandHandlerFn,
+    ) -> None:
+        self._config = config
+        self._log = log
+        self._command_handler = command_handler
+
+        voice_cfg = config.get("voice", {}) if isinstance(config, dict) else {}
+        self._max_record = int(voice_cfg.get("maxRecordSeconds", 8))
+        self._silence_threshold = float(voice_cfg.get("silenceThreshold", 0.01))
+        self._silence_duration = float(voice_cfg.get("silenceDuration", 1.5))
+
+        # TTS-Instanz (persistent für geringe Latenz)
+        from voice.tts_service import create_tts, RESPONSES
+        self._tts = create_tts(config)
+        self._responses = RESPONSES
+
+        # Mutex: verhindert gleichzeitige Aktivierungen
+        self._processing = threading.Lock()
+
+        # WakeWordDetector (neue Schnittstelle: nur on_activation)
+        from voice.wake_word import WakeWordDetector
+        self._detector = WakeWordDetector(
+            config=config,
+            log=log,
+            on_activation=self._on_wake_word,
+        )
+
+    # ── TTS-Helfer ────────────────────────────────────────────────────────────
+
+    def _speak(self, text: str) -> None:
+        """Spricht Text via persistenter TTS-Instanz. Fehler werden nur geloggt."""
+        try:
+            self._tts.speak(text)
+            self._tts.wait_done()
+        except Exception as exc:
+            self._log("WARN", f"TTS-Fehler: {exc}", errorCode="tts_speak_failed")
+
+    def _speak_response(self, key: str, **kwargs: Any) -> None:
+        """Spricht eine vordefinierte Antwort aus RESPONSES mit optionalen Platzhaltern."""
+        template = self._responses.get(key, "")
+        try:
+            text = template.format(**kwargs) if kwargs else template
+        except KeyError:
+            text = template
+        if text:
+            self._speak(text)
+
+    # ── Wake-Word-Callback ────────────────────────────────────────────────────
+
+    def _on_wake_word(self) -> None:
+        """
+        Wird vom WakeWordDetector-Thread bei Erkennung aufgerufen.
+        Führt die vollständige Pipeline aus: TTS → STT → Intent → TTS.
+        """
+        # Keine gleichzeitigen Aktivierungen zulassen
+        if not self._processing.acquire(blocking=False):
+            self._log("INFO", "Wake-Word ignoriert (Pipeline bereits aktiv).")
+            return
+
+        try:
+            # 1. Bestätigung: "Ja?"
+            self._speak_response("wake_ack")
+
+            # 2. Audio aufnehmen (sounddevice, mit 5s False-Positive-Schutz)
+            from voice.stt_service import record_after_wake_word
+            audio = record_after_wake_word(
+                max_seconds=self._max_record,
+                silence_threshold=self._silence_threshold,
+                silence_duration=self._silence_duration,
+            )
+
+            # False Positive: kein Audio → stille Deaktivierung nach 5 s
+            if audio is None or len(audio) == 0:
+                self._log("INFO", "Wake-Word: kein Audio erkannt (stille Deaktivierung).")
+                return
+
+            # 3. Transkription
+            from voice.stt_service import transcribe
+            text = transcribe(audio, self._config)
+
+            if not text:
+                self._speak_response("not_understood")
+                return
+
+            self._log("STT", f"Erkannt: '{text}'")
+
+            # 4. Intent ausführen via CommandHandler
+            response: str | None = None
+            try:
+                response = self._command_handler(
+                    self._config, self._log, text
+                )
+            except Exception as exc:
+                self._log(
+                    "ERROR",
+                    f"Command-Handler Fehler: {exc}",
+                    errorCode="voice_command_failed",
+                )
+                self._speak_response("error_generic")
+                return
+
+            # 5. Antwort sprechen (None = unbekannter Intent → AI-Brain hat es)
+            if response:
+                self._speak(str(response))
+            else:
+                self._log("INFO", "Intent unbekannt — kein TTS vom VoiceController.")
+
+        except Exception as exc:
+            self._log(
+                "ERROR",
+                f"Voice-Pipeline Fehler: {exc}",
+                errorCode="voice_pipeline_failed",
+            )
+            try:
+                self._speak_response("error_generic")
+            except Exception:
+                pass
+        finally:
+            self._processing.release()
+
+    # ── Public API ────────────────────────────────────────────────────────────
+
+    def start(self) -> None:
+        self._log("INFO", "VoiceController startet.")
+        self._detector.start()
+
+    def stop(self) -> None:
+        self._log("INFO", "VoiceController wird beendet.")
+        self._detector.stop()
+        try:
+            self._tts.stop()
+        except Exception:
+            pass
+
+    def get_status(self) -> VoiceStatus:
+        return get_voice_status(self._config)
+
+    @property
+    def tts(self) -> Any:
+        """Gibt TTS-Instanz zurück — für Reminder-Engine und Morning-Routine."""
+        return self._tts
 
 
 def log_voice_status(config: dict[str, Any], log: LogFn) -> None:

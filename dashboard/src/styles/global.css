@@ -945,6 +945,124 @@ select.form-input option {
   font-family: monospace;
 }
 
+/* ── Availability-Widget ────────────────────────────────────────────────────── */
+
+.avail-widget {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.avail-day {
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+}
+
+.avail-day-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.avail-day-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: .07em;
+  color: var(--muted);
+  font-weight: 700;
+}
+
+.avail-date-str {
+  font-size: 11px;
+  color: var(--muted);
+  font-family: monospace;
+}
+
+.avail-shift-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.avail-time {
+  font-size: 12px;
+  font-family: monospace;
+}
+
+.avail-rec-row {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  flex-wrap: wrap;
+}
+
+.avail-rec-emoji {
+  font-size: 14px;
+  line-height: 1;
+}
+
+.avail-rec-label {
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.avail-window {
+  font-size: 12px;
+  font-family: monospace;
+  color: var(--accent);
+  background: rgba(88, 166, 255, .08);
+  border: 1px solid rgba(88, 166, 255, .2);
+  border-radius: 6px;
+  padding: 2px 7px;
+}
+
+.avail-reason {
+  font-size: 12px;
+  color: var(--muted);
+  line-height: 1.45;
+}
+
+/* ── TODO-Statistiken-Grid ───────────────────────────────────────────────── */
+
+.todo-stats-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+  margin-bottom: 6px;
+}
+
+.todo-stat-card {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 16px;
+  text-align: center;
+  transition: border-color .15s;
+}
+
+.todo-stat-card:hover {
+  border-color: rgba(88, 166, 255, .4);
+}
+
+.todo-stat-value {
+  font-size: 30px;
+  font-weight: 900;
+  line-height: 1;
+  margin-bottom: 6px;
+}
+
+.todo-stat-label {
+  font-size: 12px;
+  color: var(--muted);
+  letter-spacing: .03em;
+}
+
 /* ── Responsive ────────────────────────────────────────────────────────────── */
 @media (max-width: 760px) {
   .form-row-2col {
@@ -965,6 +1083,14 @@ select.form-input option {
 
   .advice-week-grid {
     grid-template-columns: 1fr;
+  }
+
+  .avail-widget {
+    grid-template-columns: 1fr;
+  }
+
+  .todo-stats-grid {
+    grid-template-columns: repeat(3, 1fr);
   }
 
   .app-nav {

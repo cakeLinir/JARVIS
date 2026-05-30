@@ -1,0 +1,41 @@
+{
+  "_comment": "Voice-Konfiguration für JARVIS Desktop-Agent — in config.local.json einfügen",
+  "voice": {
+    "_comment_enabled": "true = Voice-Pipeline aktiv (Wake-Word → STT → Intent → TTS)",
+    "enabled": true,
+
+    "_comment_wake_word": "openWakeWord-Modell und Erkennungsschwelle",
+    "wakeWordEnabled": true,
+    "wakeWordModel": "hey_jarvis",
+    "wakeWordThreshold": 0.5,
+
+    "_comment_vad": "VAD-Vorfilter: überspringt leise Chunks vor dem Modell (spart CPU)",
+    "vadEnabled": true,
+    "vadThreshold": 0.003,
+
+    "_comment_stt": "STT-Provider: 'faster-whisper' (lokal, kein API-Key) oder 'openai'",
+    "sttProvider": "faster-whisper",
+    "sttModel": "medium",
+    "language": "de-DE",
+    "sttSilenceSeconds": 1.2,
+    "sttMaxDurationSeconds": 12.0,
+    "sttTimeoutSeconds": 8.0,
+    "sttNoSpeechThreshold": 0.6,
+    "sttLogprobThreshold": -0.7,
+
+    "_comment_tts": "TTS-Provider: 'sapi' (Windows SAPI, offline), 'edge' (edge-tts, online)",
+    "ttsProvider": "sapi",
+    "ttsVoice": "",
+    "ttsGender": "male",
+    "ttsRate": 170,
+    "ttsVolume": 0.9,
+
+    "_comment_record": "Aufnahme-Parameter nach Wake-Word",
+    "maxRecordSeconds": 8,
+    "silenceThreshold": 0.01,
+    "silenceDuration": 1.5
+  },
+
+  "_comment_openai": "Nur nötig wenn sttProvider='openai'",
+  "openaiApiKey": "sk-CHANGE_ME"
+}

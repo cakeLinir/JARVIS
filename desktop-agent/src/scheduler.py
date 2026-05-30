@@ -4,6 +4,8 @@ import threading
 from datetime import date, datetime
 from typing import Any, Callable
 
+from shifts.shift_client import get_shift
+
 LogFn = Callable[[str, str], None]
 RoutineRunFn = Callable[[dict[str, Any]], None]
 
@@ -46,6 +48,13 @@ class RoutineScheduler:
         except Exception:
             return None
 
+    def _get_shift_context(self, date_str: str) -> dict[str, Any] | None:
+        """Holt die Schicht für ein Datum — gibt None zurück wenn nicht erreichbar."""
+        try:
+            return get_shift(self._config, self._log, date_str)
+        except Exception:
+            return None
+
     def _is_allowed_day(self, days: Any) -> bool:
         if not isinstance(days, list) or not days:
             return True  # kein Filter → immer erlaubt
@@ -71,6 +80,14 @@ class RoutineScheduler:
 
         if not self._is_allowed_day(routine.get("days")):
             return False
+
+        # Schichttyp-Filter: Routine nur ausführen wenn aktuelle Schicht passt
+        shift_types_filter = routine.get("shiftTypes")
+        if isinstance(shift_types_filter, list) and shift_types_filter:
+            shift = self._get_shift_context(now.date().isoformat())
+            if shift is not None and shift.get("type") not in shift_types_filter:
+                return False
+            # shift=None → Backend nicht erreichbar → Routine trotzdem erlauben
 
         if self._ran_today.get(name) == now.date():
             return False  # heute bereits gelaufen

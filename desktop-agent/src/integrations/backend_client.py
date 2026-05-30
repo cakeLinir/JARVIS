@@ -207,3 +207,90 @@ def complete_command(
         payload=payload,
         log=log,
     )
+
+
+# ── TODO-Endpunkte ────────────────────────────────────────────────────────────
+
+def get_todos_today(config: dict[str, Any], log: LogFn) -> list[dict[str, Any]]:
+    result = request_json(
+        backend_url=config.get("backendUrl", ""),
+        agent_token=config.get("agentToken", ""),
+        endpoint="/api/todos/today",
+        method="GET",
+        payload=None,
+        log=log,
+        quiet_success=True,
+    )
+    if not isinstance(result, dict):
+        return []
+    return result.get("todos", [])
+
+
+def create_todo(
+    config: dict[str, Any],
+    log: LogFn,
+    title: str,
+    due_date: str | None = None,
+    due_time: str | None = None,
+    priority: int = 3,
+    category: str | None = None,
+    reminder_minutes: int | None = None,
+    source: str = "agent",
+    description: str | None = None,
+) -> dict[str, Any] | None:
+    payload: dict[str, Any] = {"title": title, "priority": priority, "source": source}
+    if due_date:
+        payload["dueDate"] = due_date
+    if due_time:
+        payload["dueTime"] = due_time
+    if category:
+        payload["category"] = category
+    if reminder_minutes is not None:
+        payload["reminderMinutes"] = reminder_minutes
+    if description:
+        payload["description"] = description
+
+    result = request_json(
+        backend_url=config.get("backendUrl", ""),
+        agent_token=config.get("agentToken", ""),
+        endpoint="/api/todos",
+        method="POST",
+        payload=payload,
+        log=log,
+    )
+    return result.get("todo") if isinstance(result, dict) else None
+
+
+def update_todo(
+    config: dict[str, Any],
+    log: LogFn,
+    todo_id: str,
+    data: dict[str, Any],
+    actor: str = "agent",
+) -> dict[str, Any] | None:
+    result = request_json(
+        backend_url=config.get("backendUrl", ""),
+        agent_token=config.get("agentToken", ""),
+        endpoint=f"/api/todos/{todo_id}",
+        method="PATCH",
+        payload={**data, "actor": actor},
+        log=log,
+    )
+    return result.get("todo") if isinstance(result, dict) else None
+
+
+def complete_todo(
+    config: dict[str, Any],
+    log: LogFn,
+    todo_id: str,
+    actor: str = "agent",
+) -> dict[str, Any] | None:
+    result = request_json(
+        backend_url=config.get("backendUrl", ""),
+        agent_token=config.get("agentToken", ""),
+        endpoint=f"/api/todos/{todo_id}/complete",
+        method="POST",
+        payload={"actor": actor},
+        log=log,
+    )
+    return result.get("todo") if isinstance(result, dict) else None

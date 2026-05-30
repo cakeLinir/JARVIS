@@ -1,0 +1,15 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# JARVIS Desktop Agent – Entwicklungsabhängigkeiten
+# Nur für Tests, Linting und lokale Entwicklung — nicht für Produktion
+#
+# Installation:
+#   pip install -r requirements-dev.txt
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Test-Framework
+pytest>=7.4.0
+pytest-asyncio>=0.21.0
+
+# Code-Qualität (optional)
+# mypy>=1.8.0
+# ruff>=0.3.0

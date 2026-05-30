@@ -213,3 +213,48 @@ class TTSService:
 
 def create_tts(config: dict[str, Any]) -> TTSService:
     return TTSService(config)
+
+
+# ── Deutsche Standard-Antworten ───────────────────────────────────────────────
+
+RESPONSES: dict[str, str] = {
+    # Wake-Word-Bestätigung
+    "wake_ack":           "Ja?",
+    # Fehler / Rückfragen
+    "not_understood":     "Ich habe das nicht verstanden. Bitte wiederhole.",
+    "listening_error":    "Ich habe dich nicht gehört. Bitte sprich nach dem Signalton.",
+    "backend_offline":    "Backend nicht erreichbar. Befehl wurde gespeichert.",
+    "error_generic":      "Ein Fehler ist aufgetreten.",
+    # TODOs
+    "todo_created":       "Aufgabe angelegt: {title}",
+    "todo_completed":     "Erledigt: {title}",
+    "todo_updated":       "Aufgabe aktualisiert: {title}",
+    "todo_not_found":     "Ich konnte die Aufgabe nicht finden.",
+    # Schichten
+    "shift_set":          "Schicht eingetragen: {shift_type} am {date}.",
+    "shift_conflict":     "Für dieses Datum ist bereits eine Schicht eingetragen.",
+    "shift_not_found":    "Keine Schicht für dieses Datum gefunden.",
+    # Streaming
+    "stream_free":        "Heute ist Streaming jederzeit möglich.",
+    "stream_conditional": "Streaming heute möglich: {window}. {reason}",
+    "stream_discouraged": "Streaming heute eher nicht empfohlen. {reason}",
+    "stream_blocked":     "Streaming heute nicht empfohlen. {reason}",
+    # System
+    "morning_started":    "Ich starte die Morgenroutine.",
+    "agent_stopping":     "Auf Wiedersehen.",
+}
+
+
+def speak(text: str, config: dict[str, Any]) -> bool:
+    """
+    Standalone TTS-Ausgabe ohne persistente Service-Instanz.
+    Für einmalige Ausgaben; der VoiceController nutzt seine eigene Instanz.
+    """
+    try:
+        svc = TTSService(config)
+        svc.speak(text)
+        svc.wait_done()
+        svc.stop()
+        return True
+    except Exception:
+        return False

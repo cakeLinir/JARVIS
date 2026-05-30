@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { getDashboardOverview, logoutDashboard, startMorningRoutine } from "../api/client";
+import { AvailabilityWidget } from "../components/AvailabilityWidget";
 import { DataTable } from "../components/DataTable";
 import { JsonDetails } from "../components/JsonDetails";
 import { KeyValueList } from "../components/KeyValueList";
@@ -129,9 +130,14 @@ export function DashboardPage({ onAuthRequired }: Props) {
       <main className="dashboard-shell">
         {error ? <div className="error-box">Fehler: {error}</div> : null}
 
+        {/* Metriken-Übersicht */}
         <div className="metric-grid">
           <MetricCard label="Runtime" value={<StatusBadge value={data?.runtime?.state ?? "unknown"} />} />
-          <MetricCard label="TODO offen" value={data?.todo?.open ?? "—"} hint={data?.todo?.provider ?? undefined} />
+          <MetricCard
+            label="TODOs offen"
+            value={data?.todoStats?.open ?? data?.todo?.open ?? "—"}
+            hint={data?.todoStats ? `${data.todoStats.dueToday} heute, ${data.todoStats.overdue} überfällig` : (data?.todo?.provider ?? undefined)}
+          />
           <MetricCard
             label="Config fehlend"
             value={data?.configuration?.summary?.missingRequired ?? "—"}
@@ -144,7 +150,44 @@ export function DashboardPage({ onAuthRequired }: Props) {
           />
         </div>
 
+        {/* TODO-Statistiken (Live aus SQLite) */}
+        {data?.todoStats && (
+          <div className="todo-stats-grid">
+            <div className="todo-stat-card">
+              <div className="todo-stat-value" style={{ color: "var(--text)" }}>
+                {data.todoStats.open}
+              </div>
+              <div className="todo-stat-label">Offen gesamt</div>
+            </div>
+            <div className="todo-stat-card">
+              <div
+                className="todo-stat-value"
+                style={{ color: data.todoStats.dueToday > 0 ? "var(--warn)" : "var(--ok)" }}
+              >
+                {data.todoStats.dueToday}
+              </div>
+              <div className="todo-stat-label">Heute fällig</div>
+            </div>
+            <div className="todo-stat-card">
+              <div
+                className="todo-stat-value"
+                style={{ color: data.todoStats.overdue > 0 ? "var(--bad)" : "var(--ok)" }}
+              >
+                {data.todoStats.overdue}
+              </div>
+              <div className="todo-stat-label">Überfällig</div>
+            </div>
+          </div>
+        )}
+
         <div className="panel-grid">
+          {/* Streaming-Verfügbarkeit für heute und morgen */}
+          {(data?.streamToday || data?.streamTomorrow) && (
+            <Panel title="Streaming-Verfügbarkeit">
+              <AvailabilityWidget today={data.streamToday} tomorrow={data.streamTomorrow} />
+            </Panel>
+          )}
+
           <Panel title="Runtime">
             <KeyValueList
               items={[

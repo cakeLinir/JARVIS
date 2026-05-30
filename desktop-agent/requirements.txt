@@ -1,53 +1,68 @@
 # ─────────────────────────────────────────────────────────────────────────────
 # JARVIS Desktop Agent – Python-Abhängigkeiten
-# Getestet mit Python 3.11+ auf Windows 10/11
+# Python 3.11+ auf Windows 10/11
 #
-# Installation (im desktop-agent-Ordner):
+# Installation:
 #   py -3 -m venv .venv
 #   .venv\Scripts\activate
 #   pip install -r requirements.txt
 #
-# Hinweis zu PyAudio auf Windows:
-#   Seit Version 0.2.14 gibt es fertige Windows-Wheels auf PyPI.
-#   Falls "pip install pyaudio" trotzdem fehlschlägt:
-#   → Microsoft C++ Build Tools installieren (https://visualstudio.microsoft.com/visual-cpp-build-tools/)
+# Für Entwicklung (Tests, Linting):
+#   pip install -r requirements-dev.txt
 # ─────────────────────────────────────────────────────────────────────────────
 
 
-# ── Windows / System ──────────────────────────────────────────────────────────
-# pywin32: SAPI TTS (win32com.client, pythoncom) + Windows-Fensterverwaltung
+# ── Core: Netzwerk + Datenformate ────────────────────────────────────────────
+# Alle HTTP-Aufrufe laufen über urllib.request (stdlib) — requests optional
+numpy>=1.24.0
+
+
+# ── Windows-Automation ───────────────────────────────────────────────────────
+# pywin32: SAPI TTS + Windows-Fensterverwaltung (win32com.client, pythoncom)
 pywin32>=306
-# psutil: Prozess- und Fensterverwaltung (window_manager.py)
-psutil>=5.9,<7.0
+# psutil: Prozesse, Akku-Status, CPU/RAM (system_info.py)
+psutil>=5.9.0,<7.0
+# pycaw: Windows-Lautstärke via COM/WASAPI (system_control.py)
+# → Microsoft C++ Build Tools erforderlich wenn kein Wheel vorhanden
+pycaw>=20181226
+# comtypes: Windows-COM-Bindings (pycaw-Abhängigkeit)
+comtypes>=1.4.0
 
 
-# ── Spracheingabe (STT) ───────────────────────────────────────────────────────
-# faster-whisper: lokale, offline Spracherkennung (Deutsch, medium-Modell ~1.5 GB)
-faster-whisper>=1.0,<2.0
-# numpy: Audio-Verarbeitung für STT und Wake-Word
-numpy>=1.24
-# pyaudio: Mikrofon-Zugriff (STT + Wake-Word-Stream)
+# ── Voice: Aufnahme + Wake-Word ───────────────────────────────────────────────
+# sounddevice: Mikrofon-Stream für Wake-Word + record_after_wake_word
+# Bringt PortAudio-Binaries auf Windows mit — kein separates Build nötig
+sounddevice>=0.4.6
+# pyaudio: STT-Kalibrierung (STTService)
+# → Wheel-Problem: falls Fehler, Build Tools installieren (siehe Hinweis oben)
 pyaudio>=0.2.14
+# openWakeWord: Hey-Jarvis Wake-Word-Erkennung (ONNX, offline)
+# Beim ersten Start: Modell ~10 MB automatisch heruntergeladen
+openwakeword>=0.6.0
+# onnxruntime: ONNX-Laufzeit für openWakeWord (Windows-kompatibel, kein TFLite)
+onnxruntime>=1.16.0
 
 
-# ── Wake-Word-Erkennung ───────────────────────────────────────────────────────
-# openWakeWord: dedizierter Wake-Word-Detektor (hey_jarvis-Modell, ONNX-basiert)
-# Beim ersten Start lädt er das Modell automatisch herunter (~10 MB).
-openwakeword>=0.6
+# ── Voice: STT (Spracherkennung) ──────────────────────────────────────────────
+# faster-whisper: lokale offline-STT (Deutsch, medium-Modell ~1,5 GB)
+faster-whisper>=1.0.0,<2.0.0
 
 
-# ── Sprachausgabe (TTS) ───────────────────────────────────────────────────────
-# edge-tts: Microsoft Neural TTS (de-DE-ConradNeural, de-DE-KillianNeural …)
-# Benötigt Internetzugang. Fallback: Windows SAPI (pywin32, s.o.)
-edge-tts>=7.0
+# ── Voice: TTS (Sprachausgabe) ────────────────────────────────────────────────
+# edge-tts: Microsoft Neural TTS (de-DE-ConradNeural)
+# Benötigt Internetzugang; Fallback: Windows SAPI (pywin32, s.o.)
+edge-tts>=7.0.0
 
 
-# ── KI-Gehirn (Claude API) ───────────────────────────────────────────────────
-# anthropic: Anthropic SDK für Claude Tool Use (ai_brain.py)
+# ── KI-Gehirn ─────────────────────────────────────────────────────────────────
+# anthropic: Claude Tool Use für Intent-Router + AI-Brain
 # API-Key in config.json (anthropicApiKey) oder ENV: ANTHROPIC_API_KEY
-anthropic>=0.50
+anthropic>=0.50.0
+# openai: OpenAI Whisper API-Transkription (sttProvider=openai)
+# Nur benötigt wenn sttProvider="openai" in config.json konfiguriert
+openai>=1.0.0
 
 
 # ── Netzwerk / Backend ────────────────────────────────────────────────────────
 # websockets: WebSocket-Verbindung zum VPS-Backend
-websockets>=12,<16
+websockets>=12.0,<16.0

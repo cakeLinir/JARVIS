@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import socket
 import threading
-from datetime import datetime
+from datetime import datetime, date
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any, Callable
 
@@ -42,6 +42,56 @@ def _safe_config_status(config: dict[str, Any]) -> dict[str, Any]:
         "agentTokenConfigured": _is_usable_token(agent_token),
         "localApiTokenConfigured": _is_usable_token(local_token),
     }
+
+
+def _get_todos_today(config: dict[str, Any], log: LogFn) -> list[dict[str, Any]]:
+    try:
+        from todo.sync_client import sync_todos_from_backend
+
+        return sync_todos_from_backend(config, log)
+    except Exception:
+        # Offline-Fallback auf lokalen Provider
+        try:
+            from todo.provider import read_todo_items
+
+            today_str = date.today().isoformat()
+            items = read_todo_items(config, log)
+            return [
+                item.to_dict()
+                for item in items
+                if item.status == "open" and (not item.dueDate or item.dueDate <= today_str)
+            ]
+        except Exception as exc:
+            log("WARN", f"Lokaler TODO-Fallback fehlgeschlagen: {exc}")
+            return []
+
+
+def _create_todo_via_sync(
+    config: dict[str, Any],
+    log: LogFn,
+    payload: dict[str, Any],
+) -> dict[str, Any] | None:
+    try:
+        from todo.sync_client import push_todo_to_backend
+
+        return push_todo_to_backend(config, log, payload)
+    except Exception as exc:
+        log("WARN", f"TODO-Erstellen fehlgeschlagen: {exc}")
+        return None
+
+
+def _complete_todo_via_sync(
+    config: dict[str, Any],
+    log: LogFn,
+    todo_id: str,
+) -> dict[str, Any] | None:
+    try:
+        from todo.sync_client import complete_todo_on_backend
+
+        return complete_todo_on_backend(config, log, todo_id)
+    except Exception as exc:
+        log("WARN", f"TODO-Complete fehlgeschlagen: {exc}")
+        return None
 
 
 def _todo_status(config: dict[str, Any], log: LogFn) -> dict[str, Any]:
@@ -157,6 +207,14 @@ class LocalApiServer:
                     self._send_json(200, parent._health_payload())
                     return
 
+                if self.path == "/todos/today":
+                    if not self._authorized():
+                        self._send_json(403, {"ok": False, "error": "invalid_local_api_token"})
+                        return
+                    todos = _get_todos_today(parent.config, parent.log)
+                    self._send_json(200, {"ok": True, "count": len(todos), "todos": todos})
+                    return
+
                 self._send_json(404, {"ok": False, "error": "not_found"})
 
             def do_POST(self) -> None:  # noqa: N802
@@ -168,6 +226,44 @@ class LocalApiServer:
                     body = self._read_json_body()
                 except Exception as exc:
                     self._send_json(400, {"ok": False, "error": "invalid_json", "message": str(exc)})
+                    return
+
+                # POST /todos — neues TODO erstellen
+                if self.path == "/todos":
+                    title = str(body.get("title", "")).strip()
+                    if not title:
+                        self._send_json(400, {"ok": False, "error": "title_required"})
+                        return
+
+                    payload: dict[str, Any] = {
+                        "title": title,
+                        "source": str(body.get("source", "manual")),
+                        "priority": int(body.get("priority", 3)),
+                    }
+                    for key in ("dueDate", "dueTime", "category", "description", "reminderMinutes"):
+                        if key in body:
+                            payload[key] = body[key]
+
+                    todo = _create_todo_via_sync(parent.config, parent.log, payload)
+                    if todo:
+                        self._send_json(201, {"ok": True, "todo": todo})
+                    else:
+                        self._send_json(202, {"ok": True, "queued": True, "message": "TODO in Pending-Queue gespeichert."})
+                    return
+
+                # POST /todos/:id/complete — TODO als erledigt markieren
+                path_parts = self.path.strip("/").split("/")
+                if (
+                    len(path_parts) == 3
+                    and path_parts[0] == "todos"
+                    and path_parts[2] == "complete"
+                ):
+                    todo_id = path_parts[1]
+                    result = _complete_todo_via_sync(parent.config, parent.log, todo_id)
+                    if result:
+                        self._send_json(200, {"ok": True, "todo": result})
+                    else:
+                        self._send_json(202, {"ok": True, "queued": True, "message": "Complete in Pending-Queue gespeichert."})
                     return
 
                 if self.path == "/actions/morning":

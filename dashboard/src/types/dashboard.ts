@@ -97,8 +97,22 @@ export type DashboardSessionStatus = {
   idleTimeoutSeconds?: number;
 };
 
+import type { AvailabilityResult, Shift } from "./shift";
+
+export type TodoStats = {
+  open: number;
+  dueToday: number;
+  overdue: number;
+};
+
 export type DashboardOverviewResponse = {
   ok: boolean;
+  // Neue Felder für Live-Schicht + Streaming-Verfügbarkeit
+  todoStats?: TodoStats;
+  todayShift?: Shift | null;
+  tomorrowShift?: Shift | null;
+  streamToday?: AvailabilityResult | null;
+  streamTomorrow?: AvailabilityResult | null;
   overview?: {
     service?: string;
     now?: string;

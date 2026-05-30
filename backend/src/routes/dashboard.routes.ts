@@ -22,6 +22,9 @@ import {
 import { addCommand, createCommandId, createCorrelationId, getCommandCounts, getRecentCommands } from "../services/command-store.js";
 import { appendAuditEvent, getRecentAuditEvents } from "../services/audit-log.js";
 import { getNewsSources } from "../services/news.service.js";
+import { listTodos } from "../services/todo.service.js";
+import { getShiftByDate } from "../services/shift.service.js";
+import { getAvailability } from "../services/availability.service.js";
 
 type DiscordTokenResponse = {
   access_token: string;
@@ -301,6 +304,42 @@ loadOverview();
 </html>`;
 }
 
+function todayIso(): string {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function addDaysIso(dateStr: string, days: number): string {
+  const d = new Date(`${dateStr}T00:00:00`);
+  d.setDate(d.getDate() + days);
+  return d.toISOString().slice(0, 10);
+}
+
+// Live-TODO-Statistiken aus SQLite (offen / heute fällig / überfällig)
+function buildTodoStats() {
+  try {
+    const today = todayIso();
+    const allActive = listTodos({ limit: 10_000 }).filter(
+      t => t.status === "open" || t.status === "in_progress"
+    );
+    return {
+      open: allActive.length,
+      dueToday: allActive.filter(t => t.dueDate && t.dueDate === today).length,
+      overdue:  allActive.filter(t => t.dueDate && t.dueDate < today).length,
+    };
+  } catch {
+    return { open: 0, dueToday: 0, overdue: 0 };
+  }
+}
+
+// Schicht + Availability für ein Datum — graceful fail wenn DB noch leer
+function safeGetShift(date: string) {
+  try { return getShiftByDate(date); } catch { return null; }
+}
+
+function safeGetAvailability(date: string) {
+  try { return getAvailability(date); } catch { return null; }
+}
+
 function buildTodoOverview() {
   const morningLog = getMorningLog();
 
@@ -451,8 +490,18 @@ export async function dashboardRoutes(server: FastifyInstance) {
       const runtime = getAgentRuntimeStatus(runtimeOptions());
       const sessionStatus = getDashboardSessionStatus();
 
+      const today = todayIso();
+      const tomorrow = addDaysIso(today, 1);
+
       return {
         ok: true,
+        // Live-Daten aus SQLite-Services
+        todoStats:     buildTodoStats(),
+        todayShift:    safeGetShift(today),
+        tomorrowShift: safeGetShift(tomorrow),
+        streamToday:   safeGetAvailability(today),
+        streamTomorrow: safeGetAvailability(tomorrow),
+        // Bestehende Felder (beibehalten für Rückwärtskompatibilität)
         overview: {
           service: "jarvis-backend",
           now: new Date().toISOString(),

@@ -1,73 +1,89 @@
+"""
+Wake-Word-Erkennung via openWakeWord + sounddevice.
+Neue Schnittstelle: WakeWordDetector ruft on_activation() auf — keine STT/TTS mehr hier.
+"""
+
 from __future__ import annotations
 
+import queue
 import threading
 from typing import Any, Callable
 
 import numpy as np
-import pyaudio
-
-from voice.phrases import get_stop_phrases, is_morning_phrase, normalize_phrase
 
 LogFn = Callable[[str, str], None]
-CommandFn = Callable[[str], None]
+ActivationFn = Callable[[], None]
 
-# openWakeWord erwartet 16kHz Int16-Audio in 80ms-Chunks (1280 Samples)
-_OWW_RATE = 16000
-_OWW_CHUNK = 1280
-_OWW_FORMAT = pyaudio.paInt16
+# openWakeWord erwartet 16 kHz Int16-Audio in 80 ms-Chunks (1280 Samples)
+_OWW_RATE = 16_000
+_OWW_CHUNK = 1_280
 
 
 class WakeWordDetector:
+    """
+    Lauscht kontinuierlich auf das Wake-Word und ruft bei Erkennung on_activation() auf.
+    Keine STT/TTS-Logik — die gehört in den VoiceController.
+    """
+
     def __init__(
         self,
         config: dict[str, Any],
-        stt: Any,
-        tts: Any,
         log: LogFn,
-        on_command: CommandFn,
+        on_activation: ActivationFn,
     ) -> None:
         self._config = config
-        self._stt = stt
-        self._tts = tts
         self._log = log
-        self._on_command = on_command
-        self._stop_phrases = set(get_stop_phrases(config))
-        self._stop_event = threading.Event()
-        self._thread: threading.Thread | None = None
+        self._on_activation = on_activation
 
         voice_cfg = config.get("voice", {}) if isinstance(config, dict) else {}
         self._model_name = str(voice_cfg.get("wakeWordModel", "hey_jarvis"))
         self._threshold = float(voice_cfg.get("wakeWordThreshold", 0.5))
+        # Optionaler VAD-Vorfilter: überspringt sehr leise Chunks vor dem Modell
+        self._vad_enabled = bool(voice_cfg.get("vadEnabled", True))
+        self._vad_threshold = float(voice_cfg.get("vadThreshold", 0.003))
 
-    # ── Hilfsmethoden ──────────────────────────────────────────────────────
+        self._stop_event = threading.Event()
+        # Verhindert erneutes Auslösen während on_activation läuft
+        self._processing = threading.Event()
+        self._model: Any | None = None
+        self._thread: threading.Thread | None = None
 
-    def _speak_and_wait(self, text: str) -> None:
-        self._tts.speak(text)
+    # ── Audio-Chunk-Verarbeitung ──────────────────────────────────────────────
+
+    def _process_audio_chunk(self, audio_chunk: np.ndarray) -> bool:
+        """
+        Führt openWakeWord-Prediction durch.
+        audio_chunk: int16-Array mit 1280 Samples @ 16 kHz.
+        Gibt True zurück wenn Schwellenwert überschritten.
+        """
+        if self._model is None or self._processing.is_set():
+            return False
+
+        # VAD-Vorfilter: reine Stille nicht an das Modell übergeben
+        if self._vad_enabled:
+            rms = float(np.sqrt(np.mean(audio_chunk.astype(np.float32) ** 2)))
+            if rms / 32_767 < self._vad_threshold:
+                return False
+
         try:
-            self._tts.wait_done()
-        except Exception:
-            pass
+            prediction = self._model.predict(audio_chunk)
+            triggered = any(score >= self._threshold for score in prediction.values())
+            if triggered:
+                scores = ", ".join(f"{k}={v:.2f}" for k, v in prediction.items())
+                self._log("INFO", f"Wake-Word erkannt: {scores}")
+            return triggered
+        except Exception as exc:
+            self._log("WARN", f"Wake-Word Prediction-Fehler: {exc}")
+            return False
 
-    def _flush_stream(self, stream: Any, chunks: int = 8) -> None:
-        """Veraltete Audio-Daten aus dem PyAudio-Puffer werfen."""
-        for _ in range(chunks):
-            try:
-                stream.read(_OWW_CHUNK, exception_on_overflow=False)
-            except Exception:
-                break
-
-    def _listen_for_command(self) -> str | None:
-        self._speak_and_wait("Ja?")
-        return self._stt.listen_once()
-
-    # ── Haupt-Loop ─────────────────────────────────────────────────────────
+    # ── Haupt-Loop ────────────────────────────────────────────────────────────
 
     def _loop(self) -> None:
-        # Modell laden (lädt ONNX-Datei beim ersten Start herunter)
+        # Modell laden (lädt ONNX beim ersten Start herunter)
         try:
             from openwakeword.model import Model
 
-            model = Model(
+            self._model = Model(
                 wakeword_models=[self._model_name],
                 inference_framework="onnx",
             )
@@ -75,83 +91,86 @@ class WakeWordDetector:
             self._log(
                 "ERROR",
                 f"openWakeWord konnte nicht geladen werden: {exc} "
-                f"— Installiere mit: pip install openwakeword",
+                "— Installiere mit: pip install openwakeword",
                 errorCode="oww_load_failed",
             )
             return
 
-        pa = pyaudio.PyAudio()
-        stream = pa.open(
-            format=_OWW_FORMAT,
-            channels=1,
-            rate=_OWW_RATE,
-            input=True,
-            frames_per_buffer=_OWW_CHUNK,
-        )
+        # Audio-Queue: Callback → Loop (entkoppelt Aufnahme und Verarbeitung)
+        audio_queue: queue.Queue[np.ndarray] = queue.Queue(maxsize=50)
+
+        def _sd_callback(indata: np.ndarray, frames: int, time: Any, status: Any) -> None:
+            # float32 → int16 für openWakeWord
+            chunk_int16 = (indata[:, 0] * 32_767).clip(-32_768, 32_767).astype(np.int16)
+            try:
+                audio_queue.put_nowait(chunk_int16)
+            except queue.Full:
+                pass  # Puffer voll: Chunk verwerfen, kein Crash
+
+        try:
+            import sounddevice as sd
+        except ImportError:
+            self._log(
+                "ERROR",
+                "sounddevice nicht installiert — pip install sounddevice",
+                errorCode="sounddevice_missing",
+            )
+            return
 
         self._log(
             "INFO",
-            f"Wake-Word Erkennung aktiv ({self._model_name}, "
-            f"threshold={self._threshold}). Sage 'Hey Jarvis'.",
+            f"Wake-Word Erkennung aktiv: Modell={self._model_name}, "
+            f"Schwelle={self._threshold}, VAD={self._vad_enabled}",
         )
-        self._speak_and_wait("JARVIS ist bereit.")
 
         try:
-            while not self._stop_event.is_set():
-                try:
-                    raw = stream.read(_OWW_CHUNK, exception_on_overflow=False)
-                except Exception:
-                    continue
+            with sd.InputStream(
+                samplerate=_OWW_RATE,
+                channels=1,
+                dtype="float32",
+                blocksize=_OWW_CHUNK,
+                callback=_sd_callback,
+            ):
+                while not self._stop_event.is_set():
+                    try:
+                        chunk = audio_queue.get(timeout=0.5)
+                    except queue.Empty:
+                        continue
 
-                audio = np.frombuffer(raw, dtype=np.int16)
-                prediction = model.predict(audio)
+                    if not self._process_audio_chunk(chunk):
+                        continue
 
-                triggered = any(
-                    score >= self._threshold for score in prediction.values()
-                )
-                if not triggered:
-                    continue
+                    # Wake-Word erkannt
+                    self._model.reset()
+                    self._processing.set()
 
-                scores_str = ", ".join(
-                    f"{k}={v:.2f}" for k, v in prediction.items()
-                )
-                self._log("INFO", f"Wake-Word erkannt: {scores_str}")
-                model.reset()
+                    # Audio-Puffer leeren damit kein TTS-Echo einläuft
+                    while not audio_queue.empty():
+                        try:
+                            audio_queue.get_nowait()
+                        except queue.Empty:
+                            break
 
-                # Puffer leeren bevor STT hört (verhindert TTS-Echo-Feedback)
-                self._flush_stream(stream)
+                    try:
+                        self._on_activation()
+                    except Exception as exc:
+                        self._log(
+                            "ERROR",
+                            f"on_activation Fehler: {exc}",
+                            errorCode="voice_activation_failed",
+                        )
+                    finally:
+                        self._processing.clear()
+                        self._model.reset()
 
-                command = self._listen_for_command()
+        except Exception as exc:
+            self._log(
+                "ERROR",
+                f"Wake-Word Stream-Fehler: {exc}",
+                errorCode="oww_stream_failed",
+            )
 
-                # Nach dem Sprechen und Hören wieder Puffer leeren
-                self._flush_stream(stream)
-                model.reset()
-
-                if not command:
-                    self._speak_and_wait("Ich habe nichts verstanden.")
-                    continue
-
-                self._log("STT", f"Befehl: {command}")
-                normalized = normalize_phrase(command)
-
-                if normalized in self._stop_phrases:
-                    self._log("INFO", "Stop-Phrase erkannt.")
-                    self._speak_and_wait("JARVIS wird beendet.")
-                    self._on_command("exit")
-                    break
-
-                if is_morning_phrase(command):
-                    self._on_command("guten morgen jarvis")
-                    self._tts.wait_done()
-                    continue
-
-                self._on_command(normalized)
-                self._tts.wait_done()
-
-        finally:
-            stream.stop_stream()
-            stream.close()
-            pa.terminate()
+    # ── Public API ────────────────────────────────────────────────────────────
 
     def start(self) -> None:
         self._stop_event.clear()
@@ -162,3 +181,5 @@ class WakeWordDetector:
 
     def stop(self) -> None:
         self._stop_event.set()
+        if self._thread and self._thread.is_alive():
+            self._thread.join(timeout=3.0)

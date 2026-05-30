@@ -85,3 +85,46 @@ export const SHIFT_TYPE_CLASS: Record<ShiftType, string> = {
     fakt_frueh: "shift-fakt-frueh",
     fakt_spaet: "shift-fakt-spaet",
 };
+
+// ── Availability (Streaming-Verfügbarkeit) ─────────────────────────────────
+
+export type StreamRecommendation = "free" | "conditional" | "discouraged" | "blocked";
+
+export type AvailabilityShift = {
+    type: string;
+    label: string;
+    start: string | null;
+    end: string | null;
+    crossesMidnight: boolean;
+};
+
+export type AvailabilityResult = {
+    date: string;
+    shift: AvailabilityShift | null;
+    streamRecommendation: StreamRecommendation;
+    streamWindow: { from: string; to: string } | null;
+    reason: string;
+    restHoursBefore: number;
+    restHoursAfter: number;
+    currentHour: number;
+};
+
+export type AvailabilityResponse = {
+    ok: boolean;
+    availability: AvailabilityResult;
+};
+
+// Deutsch-Labels und Farb-Klassen für Streaming-Empfehlungen
+export const REC_LABELS: Record<StreamRecommendation, string> = {
+    free:        "Stream frei",
+    conditional: "Bedingt möglich",
+    discouraged: "Nicht empfohlen",
+    blocked:     "Gesperrt",
+};
+
+export const REC_CLASS: Record<StreamRecommendation, string> = {
+    free:        "rec-free",
+    conditional: "rec-conditional",
+    discouraged: "rec-discouraged",
+    blocked:     "rec-blocked",
+};
