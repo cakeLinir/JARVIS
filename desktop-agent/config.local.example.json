@@ -1,67 +1,98 @@
-﻿{
-  "backendUrl": "http://46.225.14.84:8181",
-  "agentToken": "DEIN_JARVIS_AGENT_TOKEN",
-  "headless": true,
-  "wakeWords": [
-    "guten morgen jarvis",
-    "hallo jarvis",
-    "jarvis"
-  ],
+{
+  "_comment": "Kopiere diese Datei nach config.local.json und fülle alle PLACEHOLDER aus.",
+
+  "backendUrl": "http://YOUR_VPS_IP:8181",
+  "agentToken": "YOUR_JARVIS_AGENT_TOKEN",
+
   "localApi": {
     "enabled": true,
     "host": "127.0.0.1",
     "port": 8765,
-    "token": "DEIN_LOCAL_API_TOKEN"
+    "token": "YOUR_LOCAL_API_TOKEN_MIN_16_CHARS"
   },
+
+  "anthropicApiKey": "sk-ant-CHANGE_ME",
+
   "apps": {
     "obs": {
-      "enabled": true,
+      "enabled": false,
       "mode": "path",
-      "path": "C:\\Users\\hunde\\Desktop\\OBS-Twitch\\bin\\64bit\\obs64.exe",
+      "path": "C:\\Path\\To\\OBS\\bin\\64bit\\obs64.exe",
       "args": [],
-      "workingDir": "C:\\Users\\hunde\\Desktop\\OBS-Twitch\\bin\\64bit"
+      "workingDir": "C:\\Path\\To\\OBS\\bin\\64bit"
     },
     "discord": {
-      "enabled": true,
+      "enabled": false,
       "mode": "uri",
-      "uri": "discord://-/channels/1171118476929269820/1434639335772262552"
+      "uri": "discord:"
     },
     "spotify": {
-      "enabled": true,
+      "enabled": false,
       "mode": "uri",
       "uri": "spotify:"
     },
     "whatsapp": {
-      "enabled": true,
+      "enabled": false,
       "mode": "uri",
       "uri": "whatsapp:"
     },
     "vscode": {
-      "enabled": true,
+      "enabled": false,
       "mode": "path",
-      "path": "C:\\Users\\hunde\\AppData\\Local\\Programs\\Microsoft VS Code\\Code.exe",
-      "args": [
-        "C:\\Users\\hunde\\Desktop\\JARVIS"
-      ],
-      "workingDir": "C:\\Users\\hunde\\Desktop\\Workspace-Dev.code-workspace"
+      "path": "C:\\Users\\YOUR_USERNAME\\AppData\\Local\\Programs\\Microsoft VS Code\\Code.exe",
+      "args": ["C:\\Path\\To\\Your\\Project"],
+      "workingDir": "C:\\Path\\To\\Your\\Project"
     }
   },
+
   "todo": {
     "provider": "markdown",
-    "markdownPath": "C:\\Users\\hunde\\Desktop\\JARVIS\\data\\todo.md"
+    "markdownPath": "C:\\Path\\To\\JARVIS\\data\\todo.md"
   },
+
   "project": {
-    "lastProjectPath": "C:\\Users\\hunde\\Desktop\\JARVIS"
+    "lastProjectPath": "C:\\Path\\To\\JARVIS"
   },
-  "discordServer": {
-    "guildId": "1171118476929269820",
-    "channelId": "1434639335772262552"
+
+  "voice": {
+    "enabled": false,
+    "mode": "voice",
+    "wakeWordEnabled": true,
+    "wakeWordModel": "hey_jarvis",
+    "wakeWordThreshold": 0.5,
+    "sttProvider": "faster-whisper",
+    "sttModel": "medium",
+    "ttsProvider": "sapi",
+    "ttsGender": "male",
+    "language": "de-DE",
+    "ttsRate": 170,
+    "ttsVolume": 0.9,
+    "maxRecordSeconds": 8,
+    "silenceThreshold": 0.01,
+    "silenceDuration": 1.5
   },
+
+  "discord": {
+    "guildId": "YOUR_DISCORD_GUILD_ID",
+    "channelId": "YOUR_DISCORD_CHANNEL_ID"
+  },
+
+  "routines": [
+    {
+      "name": "morning",
+      "enabled": false,
+      "time": "08:00",
+      "days": ["mo", "di", "mi", "do", "fr"],
+      "actions": ["morning_routine"]
+    }
+  ],
+
+  "runtime": {
+    "heartbeatIntervalSeconds": 30
+  },
+
   "todoReview": {
     "enabled": true,
     "applyDuringMorningRoutine": false
-  },
-  "runtime": {
-    "heartbeatIntervalSeconds": 30
   }
 }

@@ -1,61 +1,65 @@
-# Secrets and local configuration
+# ── Secrets & lokale Konfiguration ────────────────────────────────────────────
 .env
 *.env
 !.env.example
+config.json
 config.local.json
 *.local.json
-config.json
-# Node.js
+
+# ── Node.js ───────────────────────────────────────────────────────────────────
 node_modules/
 dist/
 coverage/
+*.tsbuildinfo
 
-# Python
+# ── Python ────────────────────────────────────────────────────────────────────
 __pycache__/
 *.py[cod]
 .venv/
 venv/
+.pytest_cache/
+*.egg-info/
 
-# Logs and runtime data
+# ── Logs & Runtime ────────────────────────────────────────────────────────────
 logs/
 *.log
+*.jsonl
 *.tmp
 *.bak
 *.backup-*
 
-# OS/editor
-.DS_Store
-Thumbs.db
-.vscode/
-.idea/
-# JARVIS local/private runtime files
-backend/.env
-backend/.env.local
-desktop-agent/config.local.json
-.env
-.env.local
-logs/
-.jarvis-patch-backups/
-*.log
-*.jsonl
+# ── Datenbank & Laufzeit-Daten ────────────────────────────────────────────────
 *.sqlite3
 *.db
-*.bak
+backend/.runtime/
 backend/data/
 !backend/data/.gitkeep
-# JARVIS patch transfer files
+data/*.md
+data/*.json
+data/*.sqlite3
+data/backups/
+
+# ── JARVIS-spezifisch ─────────────────────────────────────────────────────────
+desktop-agent/config.local.json
+backend/.env
+backend/.env.local
+.jarvis-patch-backups/
 jarvis_patch_*.ps1
 jarvis_patch_*.diff
-backend/.runtime/
-backend/data/commands.json
-backend/data/audit-log.jsonl
-# JARVIS dashboard build artifacts
+
+# ── Dashboard-Build ───────────────────────────────────────────────────────────
 dashboard/node_modules/
 dashboard/dist/
 dashboard/.vite/
-dashboard/*.tsbuildinfo
 dashboard/node_modules/.tmp/
+
+# ── OS / Editor ───────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+.vscode/settings.json
+.idea/
+
+# ── TODO-Review-Artefakte ─────────────────────────────────────────────────────
 data/todo.review.json
 data/todo.schedule.json
 data/todo.apply-log.json
-data/backups/
