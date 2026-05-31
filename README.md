@@ -141,6 +141,10 @@
 
 ---
 
+JARVIS_BACKEND_HOST=0.0.0.0
+JARVIS_BACKEND_PORT=8181
+```
+
 ## Quick Start
 
 ### Voraussetzungen
@@ -151,28 +155,40 @@
 
 ### 1. Backend (VPS)
 
-```bash
+## Backend starten
+
+````bash
+```powershell
 cd backend
 cp .env.example .env
 # .env mit echten Werten füllen (siehe Konfiguration)
 npm install
 npm run build
 npm start
-```
+````
 
 **Health-Check:**
-```bash
+
+````bash
 curl http://localhost:8181/api/health
-```
+Healthcheck:
+
+```powershell
+Invoke-RestMethod http://localhost:8181/api/health
+````
 
 ### 2. Dashboard (VPS — Build)
 
-```bash
+Dashboard:
+
+````bash
 cd dashboard
 npm install
 npm run build
 # dist/ wird von Caddy als Static Files ausgeliefert
-```
+```text
+http://localhost:8181/dashboard
+````
 
 ### 3. Desktop-Agent (Windows)
 
@@ -190,6 +206,7 @@ py -3 src/main.py
 ```
 
 **Voice-Modus aktivieren** (`config.local.json`):
+
 ```json
 {
   "voice": {
@@ -213,31 +230,31 @@ py -3 src/main.py
 
 ### Backend (`backend/.env`)
 
-| Variable | Beschreibung | Pflicht |
-|---|---|---|
-| `ANTHROPIC_API_KEY` | Claude API-Key | ✅ |
-| `JARVIS_AGENT_TOKEN` | Token für Desktop-Agent | ✅ |
-| `JARVIS_BOT_BRIDGE_TOKEN` | Token für Discord-Bot | ✅ |
-| `JARVIS_DASHBOARD_TOKEN` | Token für Dashboard-Direktzugriff | ✅ |
-| `JARVIS_BACKEND_PORT` | Server-Port (default: `8181`) | — |
-| `JARVIS_ALLOWED_DISCORD_USER_IDS` | Erlaubte Discord-User-IDs (kommagetrennt) | — |
-| `JARVIS_DISCORD_OAUTH_CLIENT_ID` | Discord OAuth Client-ID | — |
-| `JARVIS_DISCORD_OAUTH_CLIENT_SECRET` | Discord OAuth Secret | — |
-| `OPENAI_API_KEY` | OpenAI API-Key (optional) | — |
+| Variable                             | Beschreibung                              | Pflicht |
+| ------------------------------------ | ----------------------------------------- | ------- |
+| `ANTHROPIC_API_KEY`                  | Claude API-Key                            | ✅      |
+| `JARVIS_AGENT_TOKEN`                 | Token für Desktop-Agent                   | ✅      |
+| `JARVIS_BOT_BRIDGE_TOKEN`            | Token für Discord-Bot                     | ✅      |
+| `JARVIS_DASHBOARD_TOKEN`             | Token für Dashboard-Direktzugriff         | ✅      |
+| `JARVIS_BACKEND_PORT`                | Server-Port (default: `8181`)             | —       |
+| `JARVIS_ALLOWED_DISCORD_USER_IDS`    | Erlaubte Discord-User-IDs (kommagetrennt) | —       |
+| `JARVIS_DISCORD_OAUTH_CLIENT_ID`     | Discord OAuth Client-ID                   | —       |
+| `JARVIS_DISCORD_OAUTH_CLIENT_SECRET` | Discord OAuth Secret                      | —       |
+| `OPENAI_API_KEY`                     | OpenAI API-Key (optional)                 | —       |
 
 Alle Werte: [backend/.env.example](backend/.env.example)
 
 ### Desktop-Agent (`desktop-agent/config.local.json`)
 
-| Feld | Beschreibung |
-|---|---|
-| `backendUrl` | URL des VPS-Backends |
-| `agentToken` | Gleicher Wert wie `JARVIS_AGENT_TOKEN` |
-| `anthropicApiKey` | Claude API-Key (lokal für Intent-Router) |
-| `voice.enabled` | Voice-Pipeline aktivieren |
+| Feld                | Beschreibung                               |
+| ------------------- | ------------------------------------------ |
+| `backendUrl`        | URL des VPS-Backends                       |
+| `agentToken`        | Gleicher Wert wie `JARVIS_AGENT_TOKEN`     |
+| `anthropicApiKey`   | Claude API-Key (lokal für Intent-Router)   |
+| `voice.enabled`     | Voice-Pipeline aktivieren                  |
 | `voice.sttProvider` | `"faster-whisper"` (lokal) oder `"openai"` |
-| `apps.*` | App-Pfade für Morning Routine |
-| `todo.markdownPath` | Pfad zur TODO-Markdown-Datei |
+| `apps.*`            | App-Pfade für Morning Routine              |
+| `todo.markdownPath` | Pfad zur TODO-Markdown-Datei               |
 
 Template: [desktop-agent/config.local.example.json](desktop-agent/config.local.example.json)
 
@@ -247,68 +264,72 @@ Template: [desktop-agent/config.local.example.json](desktop-agent/config.local.e
 
 ### Öffentlich
 
-| Methode | Pfad | Beschreibung |
-|---|---|---|
-| `GET` | `/api/health` | System-Gesundheitsstatus |
-| `GET` | `/api/news/dev` | Dev-News-Aggregation |
+Der Discord-Bot wird nicht in diesem Repository als `bot-bridge/` gepflegt.
+
+| Methode | Pfad            | Beschreibung             |
+| ------- | --------------- | ------------------------ |
+| `GET`   | `/api/health`   | System-Gesundheitsstatus |
+| `GET`   | `/api/news/dev` | Dev-News-Aggregation     |
+
+Verwendetes Repo:
 
 ### Agent (Bearer Token)
 
-| Methode | Pfad | Beschreibung |
-|---|---|---|
-| `POST` | `/api/agent/status` | Heartbeat senden |
-| `GET` | `/api/agent/status` | Letzten Status abrufen |
-| `POST` | `/api/agent/morning-log` | Morning-Routine-Report |
-| `GET` | `/api/commands/next` | Nächsten Command abrufen |
-| `POST` | `/api/commands/:id/complete` | Command abschließen |
+| Methode | Pfad                         | Beschreibung             |
+| ------- | ---------------------------- | ------------------------ |
+| `POST`  | `/api/agent/status`          | Heartbeat senden         |
+| `GET`   | `/api/agent/status`          | Letzten Status abrufen   |
+| `POST`  | `/api/agent/morning-log`     | Morning-Routine-Report   |
+| `GET`   | `/api/commands/next`         | Nächsten Command abrufen |
+| `POST`  | `/api/commands/:id/complete` | Command abschließen      |
 
 ### TODOs (Alle Jarvis-Token)
 
-| Methode | Pfad | Beschreibung |
-|---|---|---|
-| `GET` | `/api/todos` | Liste (Filter: status, category, date) |
-| `POST` | `/api/todos` | TODO erstellen (→ 201) |
-| `GET` | `/api/todos/today` | Heute fällige TODOs |
-| `GET` | `/api/todos/:id` | TODO abrufen |
-| `PATCH` | `/api/todos/:id` | TODO aktualisieren |
-| `DELETE` | `/api/todos/:id` | TODO soft-löschen (cancelled) |
-| `POST` | `/api/todos/:id/complete` | Als erledigt markieren + Recurrence |
+| Methode  | Pfad                      | Beschreibung                           |
+| -------- | ------------------------- | -------------------------------------- |
+| `GET`    | `/api/todos`              | Liste (Filter: status, category, date) |
+| `POST`   | `/api/todos`              | TODO erstellen (→ 201)                 |
+| `GET`    | `/api/todos/today`        | Heute fällige TODOs                    |
+| `GET`    | `/api/todos/:id`          | TODO abrufen                           |
+| `PATCH`  | `/api/todos/:id`          | TODO aktualisieren                     |
+| `DELETE` | `/api/todos/:id`          | TODO soft-löschen (cancelled)          |
+| `POST`   | `/api/todos/:id/complete` | Als erledigt markieren + Recurrence    |
 
 ### Schichten
 
-| Methode | Pfad | Beschreibung |
-|---|---|---|
-| `GET` | `/api/shifts` | Liste (?from=&to=) |
-| `POST` | `/api/shifts` | Schicht anlegen (→ 409 bei Konflikt) |
-| `GET` | `/api/shifts/today` | Heutige Schicht |
-| `GET` | `/api/shifts/tomorrow` | Morgige Schicht |
-| `GET` | `/api/shifts/:date` | Schicht für Datum (YYYY-MM-DD) |
-| `PATCH` | `/api/shifts/:id` | Schicht aktualisieren |
-| `DELETE` | `/api/shifts/:id` | Schicht löschen |
-| `GET` | `/api/availability/:date` | Streaming-Verfügbarkeit (?current_hour=) |
-| `GET` | `/api/shift-types` | Alle Schichttypen mit Regelwerk |
+| Methode  | Pfad                      | Beschreibung                             |
+| -------- | ------------------------- | ---------------------------------------- |
+| `GET`    | `/api/shifts`             | Liste (?from=&to=)                       |
+| `POST`   | `/api/shifts`             | Schicht anlegen (→ 409 bei Konflikt)     |
+| `GET`    | `/api/shifts/today`       | Heutige Schicht                          |
+| `GET`    | `/api/shifts/tomorrow`    | Morgige Schicht                          |
+| `GET`    | `/api/shifts/:date`       | Schicht für Datum (YYYY-MM-DD)           |
+| `PATCH`  | `/api/shifts/:id`         | Schicht aktualisieren                    |
+| `DELETE` | `/api/shifts/:id`         | Schicht löschen                          |
+| `GET`    | `/api/availability/:date` | Streaming-Verfügbarkeit (?current_hour=) |
+| `GET`    | `/api/shift-types`        | Alle Schichttypen mit Regelwerk          |
 
 ### Streaming Advice (Legacy)
 
-| Methode | Pfad | Beschreibung |
-|---|---|---|
-| `GET` | `/api/streaming/advice/today` | Streaming-Empfehlung heute |
-| `GET` | `/api/streaming/advice/tomorrow` | Streaming-Empfehlung morgen |
-| `GET` | `/api/streaming/advice?date=` | Streaming-Empfehlung Datum |
+| Methode | Pfad                             | Beschreibung                |
+| ------- | -------------------------------- | --------------------------- |
+| `GET`   | `/api/streaming/advice/today`    | Streaming-Empfehlung heute  |
+| `GET`   | `/api/streaming/advice/tomorrow` | Streaming-Empfehlung morgen |
+| `GET`   | `/api/streaming/advice?date=`    | Streaming-Empfehlung Datum  |
 
 ### Dashboard
 
-| Methode | Pfad | Beschreibung |
-|---|---|---|
-| `GET` | `/api/dashboard/overview` | Vollständiger Systemstatus |
-| `POST` | `/api/dashboard/commands/morning-routine` | Morning Routine auslösen |
-| `GET` | `/dashboard` | Web-Dashboard (HTML) |
+| Methode | Pfad                                      | Beschreibung               |
+| ------- | ----------------------------------------- | -------------------------- |
+| `GET`   | `/api/dashboard/overview`                 | Vollständiger Systemstatus |
+| `POST`  | `/api/dashboard/commands/morning-routine` | Morning Routine auslösen   |
+| `GET`   | `/dashboard`                              | Web-Dashboard (HTML)       |
 
 ---
 
 ## Projektstruktur
 
-```
+````
 JARVIS/
 ├── backend/                    # Fastify TypeScript Backend
 │   ├── src/
@@ -349,51 +370,85 @@ JARVIS/
 ├── deploy/caddy/Caddyfile      # Reverse-Proxy-Konfiguration
 ├── scripts/                    # Setup- und Deploy-Skripte
 └── docs/                       # ROADMAP, Offline-Fallback, Discord-Bot
-```
+```text
+https://github.com/cakeLinir/discord_bot_hundekuchenlive.git
+````
 
 ---
 
 ## Sicherheit
 
-| Thema | Implementierung |
-|---|---|
-| **Tokens** | Mindestens 16 Zeichen, Placeholder-Erkennung |
-| **Dashboard-Auth** | HMAC-SHA256 signierte Session-Cookies |
-| **Discord OAuth** | State-Parameter, Cookie-Prüfung |
-| **Agent-Token** | Timing-safe Vergleich (`timingSafeEqual`) |
-| **App-Start** | Allowlist für URI-Schemas und Executable-Pfade |
-| **URL-Öffnen** | Domain-Allowlist (youtube.com, open.spotify.com) |
-| **Secrets** | Nie in Code oder `.gitignore`d-Dateien |
-| **Logging** | Token-Maskierung in Log-Ausgaben |
-| **Voice** | Audio bleibt lokal, kein Stream ans Backend |
+| Thema              | Implementierung                                  |
+| ------------------ | ------------------------------------------------ |
+| **Tokens**         | Mindestens 16 Zeichen, Placeholder-Erkennung     |
+| **Dashboard-Auth** | HMAC-SHA256 signierte Session-Cookies            |
+| **Discord OAuth**  | State-Parameter, Cookie-Prüfung                  |
+| **Agent-Token**    | Timing-safe Vergleich (`timingSafeEqual`)        |
+| **App-Start**      | Allowlist für URI-Schemas und Executable-Pfade   |
+| **URL-Öffnen**     | Domain-Allowlist (youtube.com, open.spotify.com) |
+| **Secrets**        | Nie in Code oder `.gitignore`d-Dateien           |
+| **Logging**        | Token-Maskierung in Log-Ausgaben                 |
+| **Voice**          | Audio bleibt lokal, kein Stream ans Backend      |
 
 > **Hinweis:** Echte Tokens und API-Keys gehören in `backend/.env` (VPS) bzw. `desktop-agent/config.local.json` (lokal) — beide sind gitignored.
 
+## Wichtige Endpunkte
+
 ---
+
+| Bereich            |  Methode | Pfad                          | Auth                   |
+| ------------------ | -------: | ----------------------------- | ---------------------- |
+| Health             |      GET | `/api/health`                 | nein                   |
+| Dashboard          |      GET | `/dashboard`                  | Token im UI            |
+| Dashboard Overview |      GET | `/api/dashboard/overview`     | Jarvis Token           |
+| Realtime Secret    |     POST | `/api/realtime/client-secret` | Agent                  |
+| OpenAI Chat        |     POST | `/api/openai/chat`            | Jarvis Token           |
+| Dev-News           |      GET | `/api/news/dev`               | nein                   |
+| Agent Status       | POST/GET | `/api/agent/status`           | Agent/Jarvis Token     |
+| Morning Log        | POST/GET | `/api/agent/morning-log`      | Agent/Jarvis Token     |
+| Commands           | POST/GET | `/api/commands/*`             | Bot/Agent/Jarvis Token |
 
 ## Tests
 
 ### Backend
+
 ```bash
 cd backend
 npm test
 ```
-Tests für TODO-Service (createTodo, completeTodo, listTodos mit Filter) und Shift-Service (Nachtschicht, Konflikt, Availability) via Node.js `node:test` + In-Memory SQLite.
 
 ### Desktop-Agent
-```bash
+
+````bash
 cd desktop-agent
 pip install -r requirements-dev.txt
 pytest tests/ -v
-```
+- Echte `.env`-Dateien werden nicht committed.
+- Tokens gehören nicht in Code.
+- OpenAI-Key bleibt nur auf dem VPS.
+- Lokale Windows-Aktionen laufen nur über den Desktop-Agent.
+- Discord wird über Slash-Commands/Backend-Commands eingebunden, nicht als Selfbot.
+- Backend erzeugt nur Commands; der Agent validiert lokal vor der Ausführung.
+- Wake-Word und Voice-Client bleiben lokal; Audio wird erst nach Aktivierung gestreamt.
+- Unbekannte Pfade, Programme oder Commands werden nicht geraten, sondern abgelehnt und geloggt.
+
+## Nicht committen
+
+```text
+backend/.env
+desktop-agent/config.local.json
+.env
+.env.local
+````
+
 Tests für Date-Parser (alle deutschen Datumsformate), Shift-Phrasen (SHIFT_PHRASES Vollständigkeit) und Intent-Router (Mocking).
 
 ---
 
 ## Verwandte Projekte
 
-| Projekt | Beschreibung |
-|---|---|
+| Projekt                                                                                 | Beschreibung                                          |
+| --------------------------------------------------------------------------------------- | ----------------------------------------------------- |
 | [discord_bot_hundekuchenlive](https://github.com/cakeLinir/discord_bot_hundekuchenlive) | Discord-Bot mit `/todo`, `/shift`, `/stream` Commands |
 
 ---
