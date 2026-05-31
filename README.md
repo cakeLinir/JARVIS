@@ -125,7 +125,286 @@
 │          Discord-Bot (externes Repo)                        │
 │          github.com/cakeLinir/discord_bot_hundekuchenlive   │
 └─────────────────────────────────────────────────────────────┘
-# JARVIS
+```
+
+---
+
+## Tech Stack
+
+| Schicht | Technologie | Zweck |
+|---|---|---|
+| **Backend** | Fastify 5, TypeScript, Node.js | REST-API, Auth, Commands |
+| **Datenbank** | SQLite (better-sqlite3) | TODOs, Schichten, Migrationen |
+| **Validierung** | Zod | Schema-Validierung aller Requests |
+| **Frontend** | React 19, Vite, TypeScript | Dashboard-UI |
+| **Agent** | Python 3.11+ | Lokale Ausführung, Voice-Pipeline |
+| **Wake-Word** | openWakeWord (ONNX) | hey_jarvis, offline |
+| **STT** | faster-whisper | Lokale Spracherkennung, Deutsch |
+| **TTS** | edge-tts / Windows SAPI | Sprachausgabe |
+| **AI** | Anthropic Claude (Tool Use) | Intent-Router, AI-Brain |
+| **Audio** | sounddevice, pyaudio | Mikrofon-Stream |
+| **System** | psutil, pycaw, pywin32 | Automation, Windows-APIs |
+| **Reverse Proxy** | Caddy | HTTPS, Static Serving |
+| **Auth** | HMAC-SHA256, Discord OAuth | Signed Cookies, Token-Auth |
+
+---
+
+## Quick Start
+
+### Voraussetzungen
+
+- **VPS**: Linux, Node.js 22+, Caddy
+- **Lokal**: Windows 10/11, Python 3.11+, Microsoft C++ Build Tools
+- **Accounts**: Anthropic API-Key (für Intent-Router)
+
+### 1. Backend (VPS)
+
+```bash
+cd backend
+cp .env.example .env
+# .env mit echten Werten füllen (siehe Konfiguration)
+npm install
+npm run build
+npm start
+```
+
+Health-Check:
+```bash
+curl http://localhost:8181/api/health
+```
+
+### 2. Dashboard (VPS — Build)
+
+```bash
+cd dashboard
+npm install
+npm run build
+# dist/ wird von Caddy als Static Files ausgeliefert
+```
+
+### 3. Desktop-Agent (Windows)
+
+```powershell
+cd desktop-agent
+py -3 -m venv .venv
+.venv\Scripts\activate
+pip install -r requirements.txt
+
+copy config.local.example.json config.local.json
+# config.local.json mit backendUrl, agentToken etc. füllen
+
+py -3 src/main.py
+```
+
+Voice-Modus aktivieren (`config.local.json`):
+```json
+{
+  "voice": {
+    "enabled": true,
+    "wakeWordEnabled": true,
+    "sttProvider": "faster-whisper",
+    "ttsProvider": "edge"
+  }
+}
+```
+
+### 4. Autostart (Windows Task Scheduler)
+
+```powershell
+.\scripts\install-local-agent-task.ps1 -JarvisRoot "C:\Path\To\JARVIS"
+```
+
+---
+
+## Konfiguration
+
+### Backend (`backend/.env`)
+
+| Variable | Beschreibung | Pflicht |
+|---|---|---|
+| `ANTHROPIC_API_KEY` | Claude API-Key | ✅ |
+| `JARVIS_AGENT_TOKEN` | Token für Desktop-Agent | ✅ |
+| `JARVIS_BOT_BRIDGE_TOKEN` | Token für Discord-Bot | ✅ |
+| `JARVIS_DASHBOARD_TOKEN` | Token für Dashboard-Direktzugriff | ✅ |
+| `JARVIS_BACKEND_PORT` | Server-Port (default: `8181`) | — |
+| `JARVIS_ALLOWED_DISCORD_USER_IDS` | Erlaubte Discord-User-IDs (kommagetrennt) | — |
+| `JARVIS_DISCORD_OAUTH_CLIENT_ID` | Discord OAuth Client-ID | — |
+| `JARVIS_DISCORD_OAUTH_CLIENT_SECRET` | Discord OAuth Secret | — |
+| `OPENAI_API_KEY` | OpenAI API-Key (optional) | — |
+
+Volle Referenz: [backend/.env.example](backend/.env.example)
+
+### Desktop-Agent (`desktop-agent/config.local.json`)
+
+| Feld | Beschreibung |
+|---|---|
+| `backendUrl` | URL des VPS-Backends |
+| `agentToken` | Gleicher Wert wie `JARVIS_AGENT_TOKEN` |
+| `anthropicApiKey` | Claude API-Key (lokal für Intent-Router) |
+| `voice.enabled` | Voice-Pipeline aktivieren |
+| `voice.sttProvider` | `"faster-whisper"` (lokal) oder `"openai"` |
+| `apps.*` | App-Pfade für Morning Routine |
+| `todo.markdownPath` | Pfad zur TODO-Markdown-Datei |
+
+Template: [desktop-agent/config.local.example.json](desktop-agent/config.local.example.json)
+
+---
+
+## API-Endpunkte
+
+### Öffentlich
+
+| Methode | Pfad | Beschreibung |
+|---|---|---|
+| `GET` | `/api/health` | System-Gesundheitsstatus |
+| `GET` | `/api/news/dev` | Dev-News-Aggregation |
+
+### Agent (Bearer Token)
+
+| Methode | Pfad | Beschreibung |
+|---|---|---|
+| `POST` | `/api/agent/status` | Heartbeat senden |
+| `GET` | `/api/agent/status` | Letzten Status abrufen |
+| `POST` | `/api/agent/morning-log` | Morning-Routine-Report |
+| `GET` | `/api/commands/next` | Nächsten Command abrufen |
+| `POST` | `/api/commands/:id/complete` | Command abschließen |
+
+### TODOs (alle Jarvis-Token)
+
+| Methode | Pfad | Beschreibung |
+|---|---|---|
+| `GET` | `/api/todos` | Liste (Filter: status, category, date) |
+| `POST` | `/api/todos` | TODO erstellen (→ 201) |
+| `GET` | `/api/todos/today` | Heute fällige TODOs |
+| `GET` | `/api/todos/:id` | TODO abrufen |
+| `PATCH` | `/api/todos/:id` | TODO aktualisieren |
+| `DELETE` | `/api/todos/:id` | TODO soft-löschen |
+| `POST` | `/api/todos/:id/complete` | Als erledigt + Recurrence |
+
+### Schichten
+
+| Methode | Pfad | Beschreibung |
+|---|---|---|
+| `GET` | `/api/shifts` | Liste (?from=&to=) |
+| `POST` | `/api/shifts` | Schicht anlegen (→ 409 bei Konflikt) |
+| `GET` | `/api/shifts/today` | Heutige Schicht |
+| `GET` | `/api/shifts/tomorrow` | Morgige Schicht |
+| `GET` | `/api/shifts/:date` | Schicht für Datum (YYYY-MM-DD) |
+| `PATCH` | `/api/shifts/:id` | Schicht aktualisieren |
+| `DELETE` | `/api/shifts/:id` | Schicht löschen |
+| `GET` | `/api/availability/:date` | Streaming-Verfügbarkeit (?current_hour=) |
+| `GET` | `/api/shift-types` | Alle Schichttypen |
+
+### Streaming Advice
+
+| Methode | Pfad | Beschreibung |
+|---|---|---|
+| `GET` | `/api/streaming/advice/today` | Detaillierte Empfehlung heute |
+| `GET` | `/api/streaming/advice/tomorrow` | Detaillierte Empfehlung morgen |
+| `GET` | `/api/streaming/advice/week` | 7-Tage-Vorschau |
+
+### Dashboard
+
+| Methode | Pfad | Beschreibung |
+|---|---|---|
+| `GET` | `/api/dashboard/overview` | Vollständiger Systemstatus |
+| `POST` | `/api/dashboard/commands/morning-routine` | Morning Routine auslösen |
+| `GET` | `/dashboard` | Web-Dashboard (HTML) |
+
+---
+
+## Projektstruktur
+
+```
+JARVIS/
+├── backend/                    # Fastify TypeScript Backend
+│   ├── src/
+│   │   ├── config/config.ts    # Zentrales Config-System
+│   │   ├── routes/             # REST-Endpunkte
+│   │   ├── services/
+│   │   │   ├── db.ts           # Versionierte SQLite-Migrationen (v1–v3)
+│   │   │   ├── todo.service.ts # TODO-CRUD (SQLite)
+│   │   │   ├── shift.service.ts
+│   │   │   └── availability.service.ts
+│   │   ├── security/auth.ts    # HMAC + Discord OAuth
+│   │   └── types/
+│   ├── .env.example
+│   └── package.json
+│
+├── dashboard/                  # React 19 + Vite Frontend
+│   └── src/
+│       ├── pages/              # TodoPage, ShiftsPage, StreamingPage
+│       ├── components/         # AvailabilityWidget, Panel, DataTable ...
+│       ├── api/                # Fetch-Wrapper
+│       └── types/
+│
+├── desktop-agent/              # Python Windows-Agent
+│   ├── src/
+│   │   ├── core/               # Config, Logging
+│   │   ├── execution/          # App-Launcher, System-Control, Media
+│   │   ├── handlers/           # Backend-Commands, Text-Input
+│   │   ├── integrations/       # AI-Brain, Intent-Router, Backend-Client
+│   │   ├── routines/           # Morning Routine
+│   │   ├── shifts/             # Schicht-Client, Parser
+│   │   ├── todo/               # TODO-Provider, Sync, Review
+│   │   ├── voice/              # Wake-Word, STT, TTS, Controller
+│   │   └── main.py             # Orchestrator (~100 Zeilen)
+│   ├── tests/                  # pytest Unit-Tests
+│   ├── config.local.example.json
+│   └── requirements.txt
+│
+├── deploy/caddy/Caddyfile      # Reverse-Proxy-Konfiguration
+├── scripts/                    # Setup- und Deploy-Skripte (PS1/CMD)
+└── docs/                       # ROADMAP, Offline-Fallback, Discord-Bot
+```
+
+---
+
+## Sicherheit
+
+| Thema | Implementierung |
+|---|---|
+| **Tokens** | Mindestens 16 Zeichen, Placeholder-Erkennung |
+| **Dashboard-Auth** | HMAC-SHA256 signierte Session-Cookies |
+| **Discord OAuth** | State-Parameter, Cookie-Prüfung |
+| **Agent-Token** | Timing-safe Vergleich (`timingSafeEqual`) |
+| **App-Start** | Allowlist für URI-Schemas und Executable-Pfade |
+| **URL-Öffnen** | Domain-Allowlist (youtube.com, open.spotify.com) |
+| **Secrets** | Gitignored — niemals im Repository |
+| **Logging** | Token-Maskierung in allen Log-Ausgaben |
+| **Voice** | Audio bleibt lokal, kein Stream ans Backend |
+
+---
+
+## Tests
+
+### Backend
+```bash
+cd backend && npm test
+```
+Node.js `node:test` + In-Memory SQLite. Testet TODO- und Shift-Service-Logik ohne echtes Backend.
+
+### Desktop-Agent
+```bash
+cd desktop-agent
+pip install -r requirements-dev.txt
+pytest tests/ -v
+```
+Testet Date-Parser (alle deutschen Formate), Shift-Phrasen (SHIFT_PHRASES-Vollständigkeit), Intent-Router (Mocking).
+
+---
+
+## Verwandte Projekte
+
+| Projekt | Beschreibung |
+|---|---|
+| [discord_bot_hundekuchenlive](https://github.com/cakeLinir/discord_bot_hundekuchenlive) | Discord-Bot mit `/todo`, `/shift`, `/stream` Commands |
+
+---
+
+## Lizenz
+
+MIT — Details in [LICENSE](LICENSE).
 
 Persönlicher Windows-Desktop-Assistent mit Windows-VPS-Backend, bestehender Discord-Bot-Integration, Webdashboard und lokalem Windows-Agent.
 
