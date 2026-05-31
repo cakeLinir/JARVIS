@@ -1,18 +1,20 @@
 import { useCallback, useEffect, useState } from "react";
 import { getDashboardOverview, logoutDashboard } from "./api/client";
+import { ChatPage } from "./pages/ChatPage";
 import { DashboardPage } from "./pages/DashboardPage";
 import { LoginPage } from "./pages/LoginPage";
 import { ShiftsPage } from "./pages/ShiftsPage";
 import { StreamingPage } from "./pages/StreamingPage";
 import { TodoPage } from "./pages/TodoPage";
 
-type Page = "overview" | "todos" | "shifts" | "streaming";
+type Page = "overview" | "todos" | "shifts" | "streaming" | "chat";
 
 const PAGE_LABELS: Record<Page, string> = {
   overview: "Übersicht",
   todos: "Todos",
   shifts: "Schichtplan",
   streaming: "Streaming",
+  chat: "Chat",
 };
 
 export default function App() {
@@ -82,6 +84,7 @@ export default function App() {
       {page === "todos" && <TodoPage onAuthRequired={handleAuthRequired} />}
       {page === "shifts" && <ShiftsPage onAuthRequired={handleAuthRequired} />}
       {page === "streaming" && <StreamingPage onAuthRequired={handleAuthRequired} />}
+      {page === "chat" && <ChatPage />}
     </>
   );
 }

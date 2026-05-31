@@ -971,6 +971,7 @@ def _execute_ai_tool(
     tool_input: dict[str, Any],
     config: dict[str, Any],
     speak: Any,
+    reminder_manager: Any = None,
 ) -> tuple[bool, str | None]:
     """
     Führt einen von Claude gewählten Tool-Call aus.
@@ -1055,10 +1056,17 @@ def _execute_ai_tool(
             todo_ref = str(tool_input.get("todo_ref", "")).strip()
             minutes = tool_input.get("reminder_minutes")
             if todo_ref and minutes is not None:
-                hours = int(minutes) // 60
-                mins = int(minutes) % 60
+                minutes_int = int(minutes)
+                if reminder_manager is not None:
+                    trigger = reminder_manager.add_in_minutes(todo_ref, minutes_int)
+                    return False, (
+                        f"Erinnerung für '{todo_ref}' gesetzt: "
+                        f"{trigger.strftime('%H:%M')} Uhr."
+                    )
+                hours = minutes_int // 60
+                mins = minutes_int % 60
                 time_str = f"{hours}h {mins}min" if hours else f"{mins}min"
-                return False, f"Erinnerung für '{todo_ref}' auf {time_str} vorher gesetzt."
+                return False, f"Erinnerung für '{todo_ref}' in {time_str} vorgemerkt."
             return False, "TODO-Titel und Erinnerungszeit werden benötigt."
 
         return False, f"Unbekannte TODO-Aktion: {action}"
@@ -1163,6 +1171,7 @@ def _handle_local_command(
     stop_event: threading.Event,
     speak: Any,
     brain: Any = None,
+    reminder_manager: Any = None,
 ) -> bool:
     """
     Verarbeitet einen normalisierten Textbefehl.
@@ -1205,6 +1214,7 @@ def _handle_local_command(
                 call.get("input", {}),
                 config,
                 speak,
+                reminder_manager=reminder_manager,
             )
             if stop:
                 return True
@@ -1357,6 +1367,20 @@ def main() -> None:
         stop_event.set()
         log("WARN", "Lokaler Stop wurde angefordert.")
 
+    # Reminder-Manager initialisieren
+    reminder_manager = None
+    try:
+        from utils.reminder import ReminderManager
+
+        reminder_manager = ReminderManager(
+            data_path=JARVIS_ROOT / "data" / "reminders.json",
+            log=log,
+            speak=speak,
+        )
+        reminder_manager.start()
+    except Exception as exc:
+        log("WARN", f"Reminder-Manager konnte nicht gestartet werden: {exc}")
+
     # Lokale Agent-API starten (mit Brain-Referenz)
     local_api_server = None
     try:
@@ -1373,6 +1397,7 @@ def main() -> None:
                     call.get("input", {}),
                     config,
                     _noop_speak,
+                    reminder_manager=reminder_manager,
                 )
                 if result is not None and call.get("id"):
                     feedback.append({"id": call["id"], "result": result})
@@ -1438,13 +1463,10 @@ def main() -> None:
     # ── Voice-Modus ──────────────────────────────────────────────────────────
     if voice_enabled:
         try:
-            from voice.stt_service import create_stt
-            from voice.wake_word import WakeWordDetector
+            from voice.controller import VoiceController
 
-            stt = create_stt(config)
-
-            def on_voice_command(cmd: str) -> None:
-                normalized = normalize_command(cmd)
+            def _voice_command_handler(_cfg, _log, text: str) -> None:  # noqa: ARG001
+                normalized = normalize_command(text)
                 should_stop = _handle_local_command(
                     normalized,
                     config,
@@ -1452,27 +1474,26 @@ def main() -> None:
                     stop_event,
                     speak,
                     brain=brain,
+                    reminder_manager=reminder_manager,
                 )
                 if should_stop:
                     stop_event.set()
+                return None  # VoiceController spricht nicht noch einmal
 
-            detector = WakeWordDetector(
+            voice_controller = VoiceController(
                 config=config,
-                stt=stt,
-                tts=tts_service,
                 log=log,
-                on_command=on_voice_command,
+                command_handler=_voice_command_handler,
+                tts=tts_service,  # bestehende TTS-Instanz wiederverwenden
             )
-            detector.start()
+            voice_controller.start()
             stop_event.wait()
-            detector.stop()
-            if tts_service:
-                tts_service.stop()
+            voice_controller.stop()
 
         except Exception as exc:
             log(
                 "ERROR",
-                f"Voice-Modus fehlgeschlagen: {exc}. Fallback auf Textmodus.",
+                f"VoiceController fehlgeschlagen: {exc}. Fallback auf Textmodus.",
                 errorCode="voice_mode_failed",
             )
             voice_enabled = False
@@ -1489,6 +1510,7 @@ def main() -> None:
                     stop_event,
                     speak,
                     brain=brain,
+                    reminder_manager=reminder_manager,
                 )
                 if should_stop:
                     break

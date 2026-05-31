@@ -58,10 +58,11 @@ _TOOLS = [
     {
         "name": "todo_action",
         "description": (
-            "TODOs verwalten: lesen, hinzufügen, als erledigt markieren, verschieben, "
-            "Priorität setzen, Erinnerung setzen. "
-            "Wenn unklar welches TODO gemeint ist (z.B. 'mach das wichtig' ohne Kontext), "
-            "nutze das 'answer'-Tool um nachzufragen."
+            "TODOs verwalten und zeitgesteuerte Erinnerungen setzen. "
+            "Aktionen: lesen, hinzufügen, erledigen, verschieben, Priorität, Erinnerung. "
+            "WICHTIG: Für Erinnerungen wie 'erinnere mich in X Minuten/Stunden an Y' "
+            "→ action=set_reminder, todo_ref=Erinnerungstext, reminder_minutes=Minuten ab jetzt. "
+            "Wenn unklar welches TODO gemeint ist, nutze 'answer' zum Nachfragen."
         ),
         "input_schema": {
             "type": "object",

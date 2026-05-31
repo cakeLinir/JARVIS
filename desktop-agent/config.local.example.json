@@ -12,6 +12,12 @@
   },
 
   "anthropicApiKey": "sk-ant-CHANGE_ME",
+  "aiModel": "claude-haiku-4-5-20251001",
+  "aiMaxHistoryTurns": 10,
+
+  "weather": {
+    "city": "Berlin"
+  },
 
   "apps": {
     "obs": {
@@ -62,14 +68,16 @@
     "wakeWordThreshold": 0.5,
     "sttProvider": "faster-whisper",
     "sttModel": "medium",
-    "ttsProvider": "sapi",
-    "ttsGender": "male",
+    "ttsProvider": "edge",
+    "edgeVoice": "de-DE-KillianNeural",
     "language": "de-DE",
     "ttsRate": 170,
     "ttsVolume": 0.9,
-    "maxRecordSeconds": 8,
-    "silenceThreshold": 0.01,
-    "silenceDuration": 1.5
+    "sttTimeoutSeconds": 8,
+    "sttSilenceSeconds": 1.2,
+    "sttMaxDurationSeconds": 12,
+    "wakeWords": ["hey jarvis", "hallo jarvis", "jarvis"],
+    "stopPhrases": ["jarvis stopp", "jarvis abbrechen", "jarvis beenden"]
   },
 
   "discord": {
@@ -79,11 +87,13 @@
 
   "routines": [
     {
+      "_comment": "Beispiel-Routine: Morgenroutine montags bis freitags um 08:00",
       "name": "morning",
       "enabled": false,
       "time": "08:00",
       "days": ["mo", "di", "mi", "do", "fr"],
-      "actions": ["morning_routine"]
+      "actions": ["morning_routine"],
+      "shiftTypes": ["frei", "fakt_spaet"]
     }
   ],
 
@@ -94,5 +104,7 @@
   "todoReview": {
     "enabled": true,
     "applyDuringMorningRoutine": false
-  }
+  },
+
+  "agentName": "jarvis-desktop-agent"
 }

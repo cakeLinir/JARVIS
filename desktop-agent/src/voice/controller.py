@@ -147,6 +147,7 @@ class VoiceController:
         config: dict[str, Any],
         log: LogFn,
         command_handler: CommandHandlerFn,
+        tts: Any = None,
     ) -> None:
         self._config = config
         self._log = log
@@ -157,9 +158,9 @@ class VoiceController:
         self._silence_threshold = float(voice_cfg.get("silenceThreshold", 0.01))
         self._silence_duration = float(voice_cfg.get("silenceDuration", 1.5))
 
-        # TTS-Instanz (persistent für geringe Latenz) mit automatischem SAPI-Fallback
-        from voice.tts_service import create_tts, RESPONSES
-        self._tts = self._init_tts(config, log)
+        # TTS-Instanz: externes tts bevorzugen, sonst eigene Instanz mit SAPI-Fallback
+        from voice.tts_service import RESPONSES
+        self._tts = tts if tts is not None else self._init_tts(config, log)
         self._responses = RESPONSES
 
         # Mutex: verhindert gleichzeitige Aktivierungen
