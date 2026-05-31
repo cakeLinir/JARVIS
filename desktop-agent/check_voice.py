@@ -11,13 +11,26 @@ from __future__ import annotations
 import sys
 import os
 
+# UTF-8 für Windows-Terminal erzwingen (verhindert cp1252-UnicodeEncodeError)
+if os.name == "nt":
+    try:
+        import ctypes
+        ctypes.windll.kernel32.SetConsoleOutputCP(65001)
+    except Exception:
+        pass
+    for _stream in (sys.stdout, sys.stderr):
+        try:
+            _stream.reconfigure(encoding="utf-8", errors="replace")
+        except Exception:
+            pass
+
 # src/ zum Suchpfad hinzufügen
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "src"))
 
-PASS  = "✅"
-FAIL  = "❌"
-WARN  = "⚠️ "
-INFO  = "ℹ️ "
+PASS  = "[OK]  "
+FAIL  = "[FAIL]"
+WARN  = "[WARN]"
+INFO  = "[INFO]"
 
 results: list[tuple[str, str]] = []
 
@@ -53,7 +66,8 @@ check("pyaudio", lambda: __import__("pyaudio").__version__)
 def check_openwakeword():
     import openwakeword
     import openwakeword.model
-    return f"{openwakeword.__version__}"
+    version = getattr(openwakeword, "__version__", "installiert (Version nicht lesbar)")
+    return version
 oww_ok = check("openWakeWord", check_openwakeword)
 
 # 6. openWakeWord Modell hey_jarvis
