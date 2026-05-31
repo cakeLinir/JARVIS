@@ -157,9 +157,9 @@ class VoiceController:
         self._silence_threshold = float(voice_cfg.get("silenceThreshold", 0.01))
         self._silence_duration = float(voice_cfg.get("silenceDuration", 1.5))
 
-        # TTS-Instanz (persistent für geringe Latenz)
+        # TTS-Instanz (persistent für geringe Latenz) mit automatischem SAPI-Fallback
         from voice.tts_service import create_tts, RESPONSES
-        self._tts = create_tts(config)
+        self._tts = self._init_tts(config, log)
         self._responses = RESPONSES
 
         # Mutex: verhindert gleichzeitige Aktivierungen
@@ -172,6 +172,54 @@ class VoiceController:
             log=log,
             on_activation=self._on_wake_word,
         )
+
+        # STT-Modell im Hintergrund vorwärmen — verhindert 30-60s Freeze beim ersten Befehl
+        threading.Thread(target=self._warmup_stt, daemon=True, name="stt-warmup").start()
+
+    # ── Initialisierung ───────────────────────────────────────────────────────
+
+    @staticmethod
+    def _init_tts(config: dict[str, Any], log: LogFn) -> Any:
+        """TTS-Instanz mit automatischem SAPI-Fallback falls edge-tts nicht verfügbar."""
+        from voice.tts_service import create_tts
+        try:
+            svc = create_tts(config)
+            return svc
+        except Exception as primary_exc:
+            log("WARN", f"TTS primär fehlgeschlagen ({primary_exc}), versuche SAPI-Fallback.")
+            try:
+                voice_cfg = config.get("voice", {}) if isinstance(config, dict) else {}
+                if str(voice_cfg.get("ttsProvider", "")).lower() != "sapi":
+                    fallback = {**config, "voice": {**voice_cfg, "ttsProvider": "sapi"}}
+                    svc = create_tts(fallback)
+                    log("INFO", "TTS: SAPI-Fallback aktiv.")
+                    return svc
+            except Exception as fallback_exc:
+                log("ERROR", f"TTS SAPI-Fallback fehlgeschlagen: {fallback_exc}")
+            raise primary_exc
+
+    def _warmup_stt(self) -> None:
+        """
+        Lädt das faster-whisper-Modell im Hintergrund beim Start.
+        Verhindert den 30–60 Sekunden Freeze beim ersten Sprachbefehl.
+        Beim allerersten Start: Modell wird heruntergeladen (~1,5 GB).
+        """
+        voice_cfg = self._config.get("voice", {}) if isinstance(self._config, dict) else {}
+        provider = str(voice_cfg.get("sttProvider", "faster-whisper")).lower()
+        if provider == "openai":
+            return  # Kein lokales Modell nötig
+        model_size = str(voice_cfg.get("sttModel", "medium"))
+        try:
+            self._log(
+                "INFO",
+                f"STT-Modell wird geladen: {model_size} "
+                "(beim ersten Start Download ~1.5 GB — bitte warten)…",
+            )
+            from voice.stt_service import _get_cached_model
+            _get_cached_model(model_size)
+            self._log("OK", f"STT-Modell bereit: {model_size}.")
+        except Exception as exc:
+            self._log("WARN", f"STT-Warmup fehlgeschlagen: {exc}", errorCode="stt_warmup_failed")
 
     # ── TTS-Helfer ────────────────────────────────────────────────────────────
 

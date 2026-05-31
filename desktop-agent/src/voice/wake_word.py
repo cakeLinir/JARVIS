@@ -162,6 +162,16 @@ class WakeWordDetector:
                     finally:
                         self._processing.clear()
                         self._model.reset()
+                        # Während der Befehlsverarbeitung angesammeltes Audio verwerfen.
+                        # Ohne diesen Flush würden die Sekunden-alten Chunks sofort
+                        # wieder durch das Modell laufen → False-Trigger-Risiko.
+                        drained = 0
+                        while not audio_queue.empty():
+                            try:
+                                audio_queue.get_nowait()
+                                drained += 1
+                            except queue.Empty:
+                                break
 
         except Exception as exc:
             self._log(
