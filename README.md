@@ -30,6 +30,7 @@
 ## Features
 
 ### 🗣️ Voice-Pipeline
+
 - Wake-Word-Erkennung via **openWakeWord** (`hey_jarvis`, ONNX-Modell, offline)
 - **Faster-Whisper** STT (lokal, Deutsch, ~1.5 GB Modell) oder OpenAI Whisper API
 - **Intent-Router** mit Claude AI (Function Calling) — erkennt Absichten aus natürlichem Deutsch
@@ -37,6 +38,7 @@
 - Vollständige Pipeline: `Wake-Word → STT → Intent → Aktion → TTS`
 
 ### 📋 TODO-Verwaltung
+
 - SQLite-Backend mit vollständigem CRUD
 - Priorisierung (1–5), Fälligkeitsdaten, Erinnerungen, Kategorien
 - **Wiederholungen** (täglich/wöchentlich/monatlich) mit automatischer Folgeinstanz nach Abschluss
@@ -44,18 +46,21 @@
 - Voice-Befehle: „Erinnere mich morgen an Rechnung bezahlen"
 
 ### 🔄 Schichtplanung
+
 - Schichttypen: **Tagschicht** (07–19), **Nachtschicht** (19–07+1), **FAKT IST! Früh** (07–14:30), **FAKT IST! Spät** (14:30–21:30), **Frei**
 - Conflict-Check: 409 bei doppeltem Datum
 - Nachtschicht: automatische `end_date = start_date + 1` Berechnung
 - Kalender-Ansicht im Dashboard (Wochensicht)
 
 ### 📡 Streaming-Empfehlung
+
 - Ampel-System: `free` 🟢 / `conditional` 🟡 / `discouraged` 🟠 / `blocked` 🔴
 - Zeitabhängig (currentHour) und schichtabhängig
 - Beispielregel: Nachtschicht heute → vor 12 Uhr `conditional`, ab 17 Uhr `blocked`
 - REST-Endpunkt: `GET /api/availability/:date?current_hour=14`
 
 ### 🌅 Morning Routine
+
 - Automatischer App-Start (OBS, Discord, Spotify, WhatsApp, VS Code)
 - TODOs vorlesen via TTS
 - TODO-Review: KI-gestützte Priorisierung und Neuformatierung
@@ -63,11 +68,13 @@
 - Backend-Report mit Zusammenfassung
 
 ### 🤖 Intent-Router (Claude AI)
+
 - 11 vordefinierte Intents: `todo.create`, `shift.set`, `stream.query`, `app.open`, ...
 - Konfidenz-Schwellenwert: < 0.75 → Rückfrage statt blinder Ausführung
 - Offline-sicher: bei unbekanntem Intent Fallback auf AI-Brain
 
 ### 📊 Web-Dashboard
+
 - Echtzeit-Status: Agent-Heartbeat, TODO-Statistiken, Schicht heute/morgen
 - Availability-Widget: Streaming-Ampel für heute und morgen
 - TODO-Verwaltung mit Filter, Inline-Aktionen, Erstellungs-Modal
@@ -75,6 +82,7 @@
 - Auth: HMAC-SHA256 signierte Session-Cookies, Discord OAuth
 
 ### 🔧 Automation
+
 - System-Steuerung: Lautstärke (pycaw), Helligkeit (WMI)
 - Prozess-Info: Akku, CPU/RAM, laufende Apps (psutil)
 - Audio-Diagnose: Mikrofon/Lautsprecher-Check (sounddevice)
@@ -84,7 +92,7 @@
 
 ## Systemarchitektur
 
-```
+````
 ┌────────────────────────────────────────────────────────────┐
 │                      Windows VPS                           │
 │                                                            │
@@ -117,30 +125,67 @@
 │          Discord-Bot (externes Repo)                        │
 │          github.com/cakeLinir/discord_bot_hundekuchenlive   │
 └─────────────────────────────────────────────────────────────┘
-```
+# JARVIS
+
+Persönlicher Windows-Desktop-Assistent mit Windows-VPS-Backend, bestehender Discord-Bot-Integration, Webdashboard und lokalem Windows-Agent.
+
+## Zielarchitektur
+
+```text
+Windows-VPS
+  ├─ backend/
+  │   ├─ Fastify API
+  │   ├─ Dashboard-MVP
+  │   ├─ OpenAI-Service
+  │   ├─ Realtime Client-Secret-Service
+  │   ├─ Dev-News-Aggregation
+  │   ├─ Command-Routing
+  │   └─ Agent-/Bot-/Dashboard-Auth
+  │
+  └─ Discord-Bot aus separatem Repo:
+      cakeLinir/discord_bot_hundekuchenlive
+
+Lokaler Windows-PC
+  ├─ desktop-agent/
+  │   ├─ Python Desktop-Agent
+  │   ├─ lokale Agent-API auf 127.0.0.1
+  │   ├─ Programmstart/Fenstersteuerung
+  │   ├─ lokale Allowlist/Pfadvalidierung
+  │   └─ später: Voice-Client mit Wake-Word + WebRTC Realtime Audio
+  │
+  └─ lokale Konfiguration:
+      desktop-agent/config.local.json
+````
 
 ---
+
+## Port-Entscheidung
 
 ## Tech Stack
 
-| Schicht | Technologie | Zweck |
-|---|---|---|
-| **Backend** | Fastify 5, TypeScript, Node.js | REST-API, Auth, Commands |
-| **Datenbank** | SQLite (better-sqlite3) | TODOs, Schichten, Migrationen |
-| **Validierung** | Zod | Schema-Validierung aller Requests |
-| **Frontend** | React 19, Vite, TypeScript | Dashboard-UI |
-| **Agent** | Python 3.11+ | Lokale Ausführung, Voice-Pipeline |
-| **Wake-Word** | openWakeWord (ONNX) | hey_jarvis, offline |
-| **STT** | faster-whisper | Lokale Spracherkennung, Deutsch |
-| **TTS** | edge-tts / Windows SAPI | Sprachausgabe |
-| **AI** | Anthropic Claude (Tool Use) | Intent-Router, AI-Brain |
-| **Audio** | sounddevice, pyaudio | Mikrofon-Stream |
-| **System** | psutil, pycaw, pywin32 | Automation, Windows-APIs |
-| **Reverse Proxy** | Caddy | HTTPS, Static Serving |
-| **Auth** | HMAC-SHA256, Discord OAuth | Signed Cookies, Token-Auth |
+Das Backend verwendet standardmäßig Port `8181`.
+
+| Schicht           | Technologie                    | Zweck                             |
+| ----------------- | ------------------------------ | --------------------------------- |
+| **Backend**       | Fastify 5, TypeScript, Node.js | REST-API, Auth, Commands          |
+| **Datenbank**     | SQLite (better-sqlite3)        | TODOs, Schichten, Migrationen     |
+| **Validierung**   | Zod                            | Schema-Validierung aller Requests |
+| **Frontend**      | React 19, Vite, TypeScript     | Dashboard-UI                      |
+| **Agent**         | Python 3.11+                   | Lokale Ausführung, Voice-Pipeline |
+| **Wake-Word**     | openWakeWord (ONNX)            | hey_jarvis, offline               |
+| **STT**           | faster-whisper                 | Lokale Spracherkennung, Deutsch   |
+| **TTS**           | edge-tts / Windows SAPI        | Sprachausgabe                     |
+| **AI**            | Anthropic Claude (Tool Use)    | Intent-Router, AI-Brain           |
+| **Audio**         | sounddevice, pyaudio           | Mikrofon-Stream                   |
+| **System**        | psutil, pycaw, pywin32         | Automation, Windows-APIs          |
+| **Reverse Proxy** | Caddy                          | HTTPS, Static Serving             |
+| **Auth**          | HMAC-SHA256, Discord OAuth     | Signed Cookies, Token-Auth        |
+
+Grund: Port `8080` ist auf dem VPS bereits durch andere Software belegt.
 
 ---
 
+```text
 JARVIS_BACKEND_HOST=0.0.0.0
 JARVIS_BACKEND_PORT=8181
 ```
