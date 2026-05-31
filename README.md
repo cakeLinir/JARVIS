@@ -653,7 +653,7 @@ Verwendetes Repo:
 
 ## Projektstruktur
 
-````
+```
 JARVIS/
 ├── backend/                    # Fastify TypeScript Backend
 │   ├── src/
@@ -694,9 +694,11 @@ JARVIS/
 ├── deploy/caddy/Caddyfile      # Reverse-Proxy-Konfiguration
 ├── scripts/                    # Setup- und Deploy-Skripte
 └── docs/                       # ROADMAP, Offline-Fallback, Discord-Bot
+```
+
 ```text
 https://github.com/cakeLinir/discord_bot_hundekuchenlive.git
-````
+```
 
 ---
 
@@ -743,7 +745,7 @@ npm test
 
 ### Desktop-Agent
 
-````bash
+```bash
 cd desktop-agent
 pip install -r requirements-dev.txt
 pytest tests/ -v
@@ -755,6 +757,7 @@ pytest tests/ -v
 - Backend erzeugt nur Commands; der Agent validiert lokal vor der Ausführung.
 - Wake-Word und Voice-Client bleiben lokal; Audio wird erst nach Aktivierung gestreamt.
 - Unbekannte Pfade, Programme oder Commands werden nicht geraten, sondern abgelehnt und geloggt.
+```
 
 ## Nicht committen
 
@@ -763,7 +766,7 @@ backend/.env
 desktop-agent/config.local.json
 .env
 .env.local
-````
+```
 
 Tests für Date-Parser (alle deutschen Datumsformate), Shift-Phrasen (SHIFT_PHRASES Vollständigkeit) und Intent-Router (Mocking).
 
