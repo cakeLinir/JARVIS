@@ -1,5 +1,5 @@
 import { addDays, type JarvisShift, type ShiftType } from "../types/shift.types.js";
-import { getShiftByDate } from "./shift-store.js";
+import { getShiftByDate } from "./shift.service.js";
 
 export type StreamingQuality = "good" | "limited" | "poor";
 export type StreamingRecommendation = "yes" | "conditional" | "no" | "unknown";
